@@ -29,6 +29,8 @@ module load java/21
 # Export Seqera Platform (Tower) token
 export TOWER_ACCESS_TOKEN="eyJ0aWQiOiAxMzM2Nn0uZWRlMTAxYmIzZGE4ZDNjMzJjM2M1MmZkZThhNjBhZGI2M2EyNjE4Mg=="
 
+export NXF_OPTS="-Xss4M"
+
 # Check if we're running in a SLURM environment
 if [ -n "$SLURM_JOB_ID" ]; then
     echo "Running as SLURM job ID: $SLURM_JOB_ID"
