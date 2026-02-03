@@ -1,3 +1,13 @@
 /.DS_Store
 /docs
 .Rproj.user
+/multiqc
+*pdf
+*csv
+*tsv
+*xlsx
+*.log
+*.out
+*.Rproj
+*.Rhistory
+*.RData
