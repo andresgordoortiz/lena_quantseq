@@ -82,8 +82,9 @@ cat("Genes after filtering:", nrow(counts_filtered), "\n")
 nodal_score_data <- read_excel("docs/nodal-score-genes_complete.xlsx", skip = 1)
 nodal_genes <- tolower(na.omit(nodal_score_data$`Nodal score`))
 
+
 # ============================================================================
-# 3. ANALYSIS 1: 0 ng/ml vs 15 ng/ml Activin - Experiment 1 vs Experiment 2
+# 3. ANALYSIS
 # ============================================================================
 
 cat("\n============================================================\n")
