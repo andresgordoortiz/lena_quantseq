@@ -113,7 +113,7 @@ for (conc in c("5ngml", "10ngml", "15ngml")) {
 # Combine and save Exp1 GO results
 exp1_go_df <- bind_rows(exp1_go) %>%
   filter(p.adjust < 0.05) %>%
-  select(comparison, concentration, time_min, ID, Description,
+  dplyr::select(comparison, concentration, time_min, ID, Description,
          GeneRatio, pvalue, p.adjust, Count, geneID)
 
 # ============================================================================
@@ -180,7 +180,7 @@ if (!is.null(go_act_bl) && nrow(go_act_bl) > 0) {
 
 exp2_go_df <- bind_rows(exp2_go) %>%
   filter(p.adjust < 0.05) %>%
-  select(comparison, reference, time_min, ID, Description,
+  dplyr::select(comparison, reference, time_min, ID, Description,
          GeneRatio, pvalue, p.adjust, Count, geneID)
 
 # ============================================================================

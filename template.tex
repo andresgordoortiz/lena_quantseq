@@ -16,6 +16,7 @@
 \usepackage{booktabs}
 \usepackage{hyperref}
 \usepackage{xcolor}
+\usepackage{listings}
 
 % ============================================================================
 % TITLE INFORMATION
@@ -47,28 +48,96 @@
 \maketitle
 
 % ----------------------------------------------------------------------------
-\section{Section Title}
+\section{Preprocessing \& Parameters}
 % ----------------------------------------------------------------------------
+Following our meeting, I decided to re-run the upstream processing of the Quant-Seq samples using the latest build of the \textit{Danio rerio} genome (GRCz12tu; Apr 4, 2025). I tried to keep it analysis consistent with what Maria did previously, running a UMI-sensitive pipeline with the following command:
+
+\begin{lstlisting}[
+    basicstyle=\footnotesize\ttfamily,
+    breaklines=true,
+    breakatwhitespace=true,
+    columns=flexible,
+    keepspaces=true
+]
+cd $SCRATCH/lena_quantseq
+sbatch submit_nextflow_clip.sh \
+  nf-core/rnaseq \
+  --input samplesheet.csv \
+  --outdir results/ \
+  --fasta reference/genome.fna \
+  --gtf reference/genome.gtf \
+  --with_umi \
+  --umitools_extract_method regex \
+  --umitools_bc_pattern \
+    "'^(?P<cell_1>.{6})(?P<umi_1>.{4}).*'" \
+  --featurecounts_group_type gene_id \
+  -c nextflow.config \
+  -with-tower
+\end{lstlisting}
+
+The raw output files for the pipeline can be found in \verb|/bioinfo/andres.gordo/rnaseq_nfcore_out_umi.tar.gz|. The main output file that was used for downstream analysis in the gene counts matrix \verb|salmon.merged.gene_counts.tsv|. Normalisation and differential expression analysis was performed using DESeq2 in R (see code for details). From now onwards, a differentially expressed gene (DEG) is defined as one with an adjusted p-value $< 0.05$ (BH) and an absolute log2 fold change $>= 1.5$. Genes with less than 10 counts across at least 3 samples were filtered out prior to DE analysis. This, as will be observed later, resulted in \textit{wnt11}--member of the Nodal score--to be lost. The variance was not stabilised, as I wanted to keep the log2 fold changes as close to the raw counts as possible.
 
 
+\section{Maria's Re-Analysis}
 
-% ----------------------------------------------------------------------------
-\subsection{Subsection Title}
-% ----------------------------------------------------------------------------
-
-
-
-% ============================================================================
-% FIGURE EXAMPLES
-% ============================================================================
+I started by quickly re-exploring one fo Maria's previous analysis to 1) ensure that I could reproduce her results and 2) investigate if any newly-annotated gene popped up as DEG. Figure \ref{fig:single} shows a result from Experiment 1, whereby the exposure time, but not the concentration, of Activin led to significant changes in the expression of genes frmo the Nodal score.
 
 % --- Single column figure ---
-% \begin{figure}[H]
-%     \centering
-%     \includegraphics[width=\columnwidth]{path/to/image.pdf}
-%     \caption{Caption for single-column figure.}
-%     \label{fig:single}
-% \end{figure}
+\begin{figure}[H]
+\centering
+\includegraphics[width=\columnwidth]{nodal_heatmap_exp1_averaged.pdf}
+\caption{Z Score of counts from the Nodal score genes across different time points and Activin concentration in Experiment 1.}
+\label{fig:single}
+\end{figure}
+
+\section{Consistency of Activin Response Across Experiments}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{q1_combined_volcano.pdf}
+\caption{Volcano plots of DEGs in each experiment. In purple the shared genes. }
+\label{fig:exp1_vs_exp2}
+\end{figure*}
+
+The first thing on the list was to compare the DGE expression for $0$~ng/ml Activin vs. $15$~ng/ml Activin in experiment $1$ vs. experiment $2$. As it can be observed in Figure~\ref{fig:exp1_vs_exp2}, there is a good consistency between both experiments, with most genes following the same trend (up or down regulated). Experiment $1$ yielded $1{,}311$ DEGs, while Experiment $2$ had $1{,}076$ DEGs, with a total of $845$ DEGs in common. One quick look at one of the top genes, \textit{id3}, reveals it as a DNA remodeller that is expressed at the dorsal side of the embryo. The list of all and shared DEGs can be found in \textit{q1\_exp1\_0vs15\_activin\_240min.csv}, \textit{q1\_exp2\_0vs15\_dmso.csv} and \textit{q1\_shared\_de\_genes.csv} respectively.
+
+\section{Nodal Score Exploration}
+
+The next on the list was to re-explore how the selected list of genes belonging to the Nodal score varied in expression after 240 minutes of constant activin exposure or activin inbition by SB50 at different timepoints. The Figure~\ref{fig:nodalscore} shows the accumulative read counts of those nodal score genes depending on the treatment. The 'clean' treatment with activin reaches the highest stimulation, whereas treatment with SB50 dampens the response. As it was observed before, the longer the initial exposure to activin, the more irreversably comitted the cells are, threbey respodning less to the SB50 treatment. The statistical test resembles the one perfomed for GSEA (see code for details).
+
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\columnwidth]{q2_nodal_score_cumulative.pdf}
+\caption{Nodal score cumulative expression across treatments. A Kruskal-Wallis test was performed to assess significance across all conditions, followed by pairwise Wilcoxon tests with BH correction. Asterisks indicate significant pairwise comparisons against the control (0ngml DMSO): * p $< 0.05$, ** p $< 0.01$, *** p $< 0.001$.}
+\label{fig:nodalscore}
+\end{figure}
+
+
+\section{Blocking effect of SB50 on Activin-Induced Genes}
+
+Next, I wanted to explore how many of the genes that were altered by activin were effectively blocked by the SB50 treatment. To do so, I first obtained the list of genes that were significantly upregulated by activin (15ng/ml DMSO vs. 0ng/ml DMSO), and then checked how many of those were not significantly differentially expressed when comparing 15ng/ml Activin + SB50 vs. 0ng/ml DMSO. I found a total of 826 DEGs comparing activin vs. the baseline control in Experiment 2. 533 were upregualted, and 293 downregulated. On the other hand, 227, 609 and 887 DEGs were found after inhibiting Activin with SB50 at 60min, 120min and 180min respectively. Again, consistent with the idea that longer exposure times to activin lead to more irreversible cell fates. Figure \ref{fig:sb50_blocking} aims at answering whether genes induced by activin are blocked by SB50. Indeed, the highest proportion of genes being blocked (in blue, significant change in activin vs. control, but not significant in activin + SB50 vs. control) is observed at the earliest timepoint (60min), whereas the lowest proportion of blocked genes is observed at the latest timepoint (180min). Importantly, no gene has a reversed response (i.e an upregulation by activin coincides with a downregulation by SB50, or viceversa): either they are induced by activin and blocked by SB50, induced by activin and not blocked by SB50, or induced by SB50.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\columnwidth]{q3_analysis1_blocking.pdf}
+\caption{Number and proportion of activin-induced genes that are blocked, not blocked, or reversed by SB50 treatment at different timepoints.}
+\label{fig:sb50_blocking}
+\end{figure}
+
+
+\section{SB50 Effect vs. timed Exp 1}
+
+A similar yet differnt analysis from the previous is the question of comparing the effect of SB50 treatment at different times, albeit being collected at 240min, vs. the effect of simply exposing the cells to activin for different times (Experiment 1). Figure \ref{fig:sb50_vs_time} shows a similar plot as before.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\columnwidth]{q3_analysis2_comparisons.pdf}
+\caption{Number and proportion of activin-induced genes that are blocked, not blocked, or reversed by SB50 treatment at different timepoints.}
+\label{fig:sb50_vs_time}
+\end{figure}
+
+
 
 % --- Full width figure (spans both columns) ---
 % \begin{figure*}[t]

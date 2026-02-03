@@ -341,10 +341,10 @@ p_bar_wrapped <- p_bar +
 combined_fig <- (p_scatter_60 + p_scatter_120) / (p_scatter_180 + p_bar_wrapped) +
   plot_layout(widths = c(1, 1), heights = c(1, 1)) +
   plot_annotation(
-    title = "Analysis 1: Does SB50 block Activin-induced gene expression changes?",
+    title = "SB50 blocking Activin genes",
     subtitle = "All comparisons vs baseline (0ngml_DMSO). X = Activin effect, Y = SB50+Activin effect",
     theme = theme(
-      plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+      plot.title = element_text(size = 20, face = "bold", hjust = 0.5),
       plot.subtitle = element_text(size = 9, hjust = 0.5, color = "grey40")
     )
   )
@@ -597,10 +597,10 @@ p2_bar <- ggplot(comp_prop_data, aes(x = timepoint, y = pct, fill = category)) +
 combined_fig2 <- (p2_scatter_60 + p2_scatter_120) / (p2_scatter_180 + p2_bar) +
   plot_layout(widths = c(1, 1), heights = c(1, 1)) +
   plot_annotation(
-    title = "Analysis 2: How does SB50 compare to Activin references?",
+    title = "SB50 compare to Activin Exp 1",
     subtitle = "X = SB50 vs Activin-only (Exp2, 240min) | Y = SB50 vs time-matched Activin (Exp1)",
     theme = theme(
-      plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+      plot.title = element_text(size = 20, face = "bold", hjust = 0.5),
       plot.subtitle = element_text(size = 9, hjust = 0.5, color = "grey40")
     )
   )

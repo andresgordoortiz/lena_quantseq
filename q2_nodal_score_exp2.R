@@ -141,6 +141,10 @@ write_csv(pairwise, "q2_statistical_tests.csv")
 # Kruskal-Wallis on final scores (for caption, less important now)
 kw <- kruskal.test(cumsum_score ~ condition, data = final_cumsum_per_sample)
 
+# Get final cumulative stats (at last gene rank) for plotting annotations
+final <- cumsum_stats %>% filter(gene_rank == n_nodal)
+ctrl_final <- final$mean[final$condition == "0ngml_DMSO"]
+
 # Build annotation data - place bars at end of lines, vertically stacked
 annot <- pairwise %>%
   filter(sig != "ns") %>%
@@ -197,11 +201,19 @@ for(i in seq_len(nrow(annot))) {
              color = bar_color, linewidth = 0.8) +
     # Asterisks - larger, bold, black
     annotate("text", x = bar_x + 0.3, y = (ctrl_final + annot$y_test[i]) / 2,
-             label = annot$sig[i], size = 5, hjust = 0, fontface = "bold", color = "black")
+             label = annot$sig[i], size = 5, hjust = 0, fontface = "bold", color = "black") +
+    plot_annotation(
+      title = "Nodal Score after SB50 inhibition",
+      subtitle = "The steepest curve shows the highest nodal score",
+      theme = theme(
+        plot.title = element_text(size = 20, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 15, hjust = 0.5, color = "#666666")
+      )
+    )
 }
 
 # Save
-pdf("q2_nodal_score_cumulative.pdf", width = 10, height = 5, family = "Helvetica")
+pdf("q2_nodal_score_cumulative.pdf", width = 10, height = 7, family = "Helvetica")
 print(p)
 dev.off()
 

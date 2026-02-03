@@ -201,14 +201,14 @@ library(patchwork)
 # Prepare data with shared gene annotation
 res_exp1_df$category <- case_when(
   res_exp1_df$gene %in% overlap ~ "Shared",
-  res_exp1_df$padj < 0.05 & abs(res_exp1_df$log2FoldChange) > 1 ~ "DE (Exp1 only)",
+  res_exp1_df$padj < 0.05 & abs(res_exp1_df$log2FoldChange) > 1.5 ~ "DE (Exp1 only)",
   TRUE ~ "NS"
 )
 res_exp1_df$category <- factor(res_exp1_df$category, levels = c("NS", "DE (Exp1 only)", "Shared"))
 
 res_exp2_df$category <- case_when(
   res_exp2_df$gene %in% overlap ~ "Shared",
-  res_exp2_df$padj < 0.05 & abs(res_exp2_df$log2FoldChange) > 1 ~ "DE (Exp2 only)",
+  res_exp2_df$padj < 0.05 & abs(res_exp2_df$log2FoldChange) > 1.5 ~ "DE (Exp2 only)",
   TRUE ~ "NS"
 )
 res_exp2_df$category <- factor(res_exp2_df$category, levels = c("NS", "DE (Exp2 only)", "Shared"))
@@ -226,7 +226,7 @@ p1 <- ggplot(res_exp1_df, aes(x = log2FoldChange, y = -log10(padj))) +
              aes(color = category), alpha = 0.7, size = 1.5) +
   scale_color_manual(values = colors_exp1, name = "") +
   geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "#666666", linewidth = 0.3) +
-  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "#666666", linewidth = 0.3) +
+  geom_vline(xintercept = c(-1.5, 1.5), linetype = "dashed", color = "#666666", linewidth = 0.3) +
   geom_text_repel(
     data = res_exp1_df[res_exp1_df$category == "Shared", ][1:min(15, sum(res_exp1_df$category == "Shared")), ],
     aes(label = gene), size = 2.5, max.overlaps = 20, segment.size = 0.2,
@@ -254,7 +254,7 @@ p2 <- ggplot(res_exp2_df, aes(x = log2FoldChange, y = -log10(padj))) +
              aes(color = category), alpha = 0.7, size = 1.5) +
   scale_color_manual(values = colors_exp2, name = "") +
   geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "#666666", linewidth = 0.3) +
-  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "#666666", linewidth = 0.3) +
+  geom_vline(xintercept = c(-1.5, 1.5), linetype = "dashed", color = "#666666", linewidth = 0.3) +
   geom_text_repel(
     data = res_exp2_df[res_exp2_df$category == "Shared", ][1:min(15, sum(res_exp2_df$category == "Shared")), ],
     aes(label = gene), size = 2.5, max.overlaps = 20, segment.size = 0.2,
@@ -338,7 +338,7 @@ if(length(overlap) > 0) {
     )
 
   # Save combined plot
-  pdf("q1_combined_volcano.pdf", width = 10, height = 9, family = "Helvetica")
+  pdf("q1_combined_volcano.pdf", width = 10, height = 6, family = "Helvetica")
   print(combined)
   dev.off()
   cat("\nSaved: q1_combined_volcano.pdf\n")
