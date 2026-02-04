@@ -168,14 +168,14 @@ print(summary_all)
 #   NS (grey):           Neither treatment significantly changes gene vs baseline
 #
 
-LFC_THRESH <- 1.5
+LFC_THRESH <- 1.0
 PADJ_THRESH <- 0.05
 is_sig <- function(padj, lfc) !is.na(padj) & padj < PADJ_THRESH & abs(lfc) >= LFC_THRESH
 
 get_blocking_data <- function(res_activin, res_sb50, timepoint) {
   inner_join(
-    res_activin %>% select(gene, lfc_activin = log2FoldChange, padj_activin = padj),
-    res_sb50 %>% select(gene, lfc_sb50 = log2FoldChange, padj_sb50 = padj),
+    res_activin %>% dplyr::select(gene, lfc_activin = log2FoldChange, padj_activin = padj),
+    res_sb50 %>% dplyr::select(gene, lfc_sb50 = log2FoldChange, padj_sb50 = padj),
     by = "gene"
   ) %>%
     mutate(
@@ -353,7 +353,7 @@ ggsave("q3_analysis1_blocking.pdf", combined_fig, width = 8, height = 8)
 cat("\nSaved: q3_analysis1_blocking.pdf\n")
 
 # Save results
-write_csv(prop_data %>% select(timepoint, category, n, total, pct), "q3_category_summary.csv")
+write_csv(prop_data %>% dplyr::select(timepoint, category, n, total, pct), "q3_category_summary.csv")
 
 # ============================================================================
 # INTERPRETATION
@@ -480,8 +480,8 @@ write_csv(res_sb50_180_vs_exp1_180, "q3_SB50_180min_vs_Exp1_180min.csv")
 
 get_comparison_data <- function(res_vs_activin_only, res_vs_exp1, timepoint) {
   inner_join(
-    res_vs_activin_only %>% select(gene, lfc_vs_activin_only = log2FoldChange, padj_vs_activin_only = padj),
-    res_vs_exp1 %>% select(gene, lfc_vs_exp1 = log2FoldChange, padj_vs_exp1 = padj),
+    res_vs_activin_only %>% dplyr::select(gene, lfc_vs_activin_only = log2FoldChange, padj_vs_activin_only = padj),
+    res_vs_exp1 %>% dplyr::select(gene, lfc_vs_exp1 = log2FoldChange, padj_vs_exp1 = padj),
     by = "gene"
   ) %>%
     mutate(
@@ -609,7 +609,7 @@ ggsave("q3_analysis2_comparisons.pdf", combined_fig2, width = 8, height = 8)
 cat("\nSaved: q3_analysis2_comparisons.pdf\n")
 
 # Save comparison summary
-write_csv(comp_prop_data %>% select(timepoint, category, n, total, pct), "q3_analysis2_summary.csv")
+write_csv(comp_prop_data %>% dplyr::select(timepoint, category, n, total, pct), "q3_analysis2_summary.csv")
 
 # ============================================================================
 # INTERPRETATION OF ANALYSIS 2

@@ -69,7 +69,7 @@ cumsum_stats <- expand.grid(gene_rank = 1:n_nodal, condition = conditions) %>%
     mean = mean(unlist(vals)),
     sd = sd(unlist(vals))
   ) %>%
-  select(-vals) %>%
+  dplyr::select(-vals) %>%
   ungroup() %>%
   mutate(condition = factor(condition, levels = conditions))
 

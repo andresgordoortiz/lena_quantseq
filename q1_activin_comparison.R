@@ -83,9 +83,9 @@ res_exp1_df <- as.data.frame(res_exp1) %>%
   filter(!is.na(padj)) %>%
   arrange(padj)
 
-n_de <- sum(res_exp1_df$padj < 0.05 & abs(res_exp1_df$log2FoldChange) >= 1.5, na.rm = TRUE)
-n_up <- sum(res_exp1_df$padj < 0.05 & res_exp1_df$log2FoldChange > 1.5, na.rm = TRUE)
-n_down <- sum(res_exp1_df$padj < 0.05 & res_exp1_df$log2FoldChange < -1.5, na.rm = TRUE)
+n_de <- sum(res_exp1_df$padj < 0.05 & abs(res_exp1_df$log2FoldChange) >= 1, na.rm = TRUE)
+n_up <- sum(res_exp1_df$padj < 0.05 & res_exp1_df$log2FoldChange > 1, na.rm = TRUE)
+n_down <- sum(res_exp1_df$padj < 0.05 & res_exp1_df$log2FoldChange < -1, na.rm = TRUE)
 
 cat("DE genes (padj < 0.05):", n_de, "\n")
 cat("  Upregulated:", n_up, "\n")
@@ -96,7 +96,7 @@ print(head(res_exp1_df[, c("gene", "log2FoldChange", "padj")], 10))
 write_csv(res_exp1_df, "q1_exp1_0vs15_activin_240min.csv")
 
 # Volcano plot
- res_exp1_df$sig <- ifelse(res_exp1_df$padj < 0.05 & abs(res_exp1_df$log2FoldChange) > 1.5, "DE", "Not significant")
+ res_exp1_df$sig <- ifelse(res_exp1_df$padj < 0.05 & abs(res_exp1_df$log2FoldChange) > 1.0, "DE", "Not significant")
 
 p <- ggplot(res_exp1_df, aes(x = log2FoldChange, y = -log10(padj), color = sig)) +
   geom_point(alpha = 0.6, size = 2) +
@@ -145,9 +145,9 @@ res_exp2_df <- as.data.frame(res_exp2) %>%
   filter(!is.na(padj)) %>%
   arrange(padj)
 
-n_de <- sum(res_exp2_df$padj < 0.05 & abs(res_exp2_df$log2FoldChange) >= 1.5, na.rm = TRUE)
-n_up <- sum(res_exp2_df$padj < 0.05 & res_exp2_df$log2FoldChange >= 1.5, na.rm = TRUE)
-n_down <- sum(res_exp2_df$padj < 0.05 & res_exp2_df$log2FoldChange <= -1.5, na.rm = TRUE)
+n_de <- sum(res_exp2_df$padj < 0.05 & abs(res_exp2_df$log2FoldChange) >= 1, na.rm = TRUE)
+n_up <- sum(res_exp2_df$padj < 0.05 & res_exp2_df$log2FoldChange >= 1, na.rm = TRUE)
+n_down <- sum(res_exp2_df$padj < 0.05 & res_exp2_df$log2FoldChange <= -1, na.rm = TRUE)
 
 cat("DE genes (padj < 0.05):", n_de, "\n")
 cat("  Upregulated:", n_up, "\n")
@@ -201,14 +201,14 @@ library(patchwork)
 # Prepare data with shared gene annotation
 res_exp1_df$category <- case_when(
   res_exp1_df$gene %in% overlap ~ "Shared",
-  res_exp1_df$padj < 0.05 & abs(res_exp1_df$log2FoldChange) > 1.5 ~ "DE (Exp1 only)",
+  res_exp1_df$padj < 0.05 & abs(res_exp1_df$log2FoldChange) > 1.0 ~ "DE (Exp1 only)",
   TRUE ~ "NS"
 )
 res_exp1_df$category <- factor(res_exp1_df$category, levels = c("NS", "DE (Exp1 only)", "Shared"))
 
 res_exp2_df$category <- case_when(
   res_exp2_df$gene %in% overlap ~ "Shared",
-  res_exp2_df$padj < 0.05 & abs(res_exp2_df$log2FoldChange) > 1.5 ~ "DE (Exp2 only)",
+  res_exp2_df$padj < 0.05 & abs(res_exp2_df$log2FoldChange) > 1.0 ~ "DE (Exp2 only)",
   TRUE ~ "NS"
 )
 res_exp2_df$category <- factor(res_exp2_df$category, levels = c("NS", "DE (Exp2 only)", "Shared"))
@@ -226,7 +226,7 @@ p1 <- ggplot(res_exp1_df, aes(x = log2FoldChange, y = -log10(padj))) +
              aes(color = category), alpha = 0.7, size = 1.5) +
   scale_color_manual(values = colors_exp1, name = "") +
   geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "#666666", linewidth = 0.3) +
-  geom_vline(xintercept = c(-1.5, 1.5), linetype = "dashed", color = "#666666", linewidth = 0.3) +
+  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "#666666", linewidth = 0.3) +
   geom_text_repel(
     data = res_exp1_df[res_exp1_df$category == "Shared", ][1:min(15, sum(res_exp1_df$category == "Shared")), ],
     aes(label = gene), size = 2.5, max.overlaps = 20, segment.size = 0.2,
@@ -254,7 +254,7 @@ p2 <- ggplot(res_exp2_df, aes(x = log2FoldChange, y = -log10(padj))) +
              aes(color = category), alpha = 0.7, size = 1.5) +
   scale_color_manual(values = colors_exp2, name = "") +
   geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "#666666", linewidth = 0.3) +
-  geom_vline(xintercept = c(-1.5, 1.5), linetype = "dashed", color = "#666666", linewidth = 0.3) +
+  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "#666666", linewidth = 0.3) +
   geom_text_repel(
     data = res_exp2_df[res_exp2_df$category == "Shared", ][1:min(15, sum(res_exp2_df$category == "Shared")), ],
     aes(label = gene), size = 2.5, max.overlaps = 20, segment.size = 0.2,
@@ -346,7 +346,7 @@ if(length(overlap) > 0) {
   # Save shared genes CSV with log2FC from both datasets
   shared_output <- shared_fc %>%
     arrange(desc(abs(log2FoldChange_Exp1) + abs(log2FoldChange_Exp2))) %>%
-    select(gene, log2FoldChange_Exp1, padj_Exp1, log2FoldChange_Exp2, padj_Exp2)
+    dplyr::select(gene, log2FoldChange_Exp1, padj_Exp1, log2FoldChange_Exp2, padj_Exp2)
 
   write_csv(shared_output, "q1_shared_de_genes.csv")
   cat("Saved: q1_shared_de_genes.csv\n")
