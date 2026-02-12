@@ -171,15 +171,53 @@ These two figures suggest that:
 
 
 
+
+
+\section{Gene Candidates \& ChIP-Seq}
+
+Finally, I explored the dynamics of gene expression of the list of candidates genes alongside the ones encompasing the nodal Score, and integrated insights from the publsihed 2014 ChIP-Seq dataset of Smad2 and Eomesa. To do that, I first asked whether these genes appeared in either ChIP-seq dataset. Figure~\ref{fig:chip} shows that information, including if the FoxH1 motif was also found around the peak.
+
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{results/q4_chipseq_binding_heatmap.pdf}
+\caption{Heatmap showing if the candidate or nodal score genes were found in the ChIP-seq experiment, including the presence of the FoxH1 motif around the peak.}
+\label{fig:chip}
+\end{figure}
+
+Next, I analysed the ppaterns of gene expression in respone to activin (Exp 1) of these candiadte genes and the Nodal score. I found that, except sna1b--which is downregulated--, all genes are either actiavted consistently, or activated at early timepoints and then downregulated at later timepoints. Thisis shown in Figure~\ref{fig:temporal_clusters}.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{results/q4_temporal_clusters.pdf}
+\caption{Heatmap showing the temporal patterns of gene expression in response to Activin (Experiment 1) for the candidate genes and the Nodal score.}
+\label{fig:temporal_clusters}
+\end{figure*}
+
+Consequently, Figure~\ref{fig:reversibility_profile} shows the same genes but how they respond to the Experiment 2 treatments.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{results/q4_reversibility_profile.pdf}
+\caption{Heatmap showing the temporal patterns of gene expression in response to Activin (Experiment 2) for the candidate genes and the Nodal score.}
+\label{fig:reversibility_profile}
+\end{figure}
+
+And finally, Figure~\ref{fig:integrated_overview} shows an integrated overview of gene expression patterns for the candidate genes and the Nodal score across both experiments.
+
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{results/q4_integrated_overview.pdf}
+\caption{Heatmap showing the integrated overview of gene expression patterns for the candidate genes and the Nodal score across both experiments.}
+\label{fig:integrated_overview}
+\end{figure}
+
 \section{Molecular Function}
 
-Finally, I performed a quick Gene Ontology enrichment analysis using the clusterProfiler package in R. I focused on the Molecular Function ontology and explored the top enriched terms for the different comparisons performed so far. Figure~\ref{fig:go_mf} shows a selection of interesting terms that were enriched in different comparisons. The Exp~1 figure shows the Gene Ontology terms of the DEGs of each Activin concentration at each timepoint compared to the non-induced control samples. It shows predominancy of terms related to growth, signalling pathways, and transcription. Interestingly, the terms related to signalling receptors appear in every condition except for the latest timepoint, regardless of concentration, suggesting a negative feedback loop whereby Activin at first prompts the transcription of signalling receptors, but later on these get downregulated again.
+Next, I performed a quick Gene Ontology enrichment analysis using the clusterProfiler package in R. I focused on the Molecular Function ontology and explored the top enriched terms for the different comparisons performed so far. Figure~\ref{fig:go_mf} shows a selection of interesting terms that were enriched in different comparisons. The Exp~1 figure shows the Gene Ontology terms of the DEGs of each Activin concentration at each timepoint compared to the non-induced control samples. It shows predominancy of terms related to growth, signalling pathways, and transcription. Interestingly, the terms related to signalling receptors appear in every condition except for the latest timepoint, regardless of concentration, suggesting a negative feedback loop whereby Activin at first prompts the transcription of signalling receptors, but later on these get downregulated again.
 
-The Exp~2 figure shows the GO terms enriched in the DEGs obtained when comparing Activin vs.\ control at endpoint (left), SB50 treatment vs.\ the control (centre), and SB50 treatment vs.\ Activin (right). Signalling receptor terms do not appear in the Activin effect, consistent with the idea that at the latest timepoint (240~min) Activin has already downregulated those receptors. Following this hypothesis, SB50 compared to the baseline control only shows enrichment of signalling receptors when adding it at 60 minutes, since that is when we have both the maximum Activin-induced phenotype inhibition and the (according to Exp~1 GO) the receptors might be more sensitive to Activin. Adding SB50 later does not inhibit Activin that much, thereby not altering the downregulation of receptors at endpoint (240~min).
 
-Lastly, when we uncouple the SB50 inhibition from the Activin induction (rightmost), things get a bit more tricky from my perspective. Here is my take on this: at 60 minutes SB50 is effectively inhibiting Activin, which would lead to an increase in signalling receptor genes as seen in the vs.\ baseline comparison. However, since we are comparing to the Activin control, which might have some of these receptors being expressed, albeit less than in previous timepoints, the net effect is no enrichment. Comparing the SB50 to the Activin control, we can uncouple the natural regulatory network of Activin on these receptors from its inhibition. At 180 minutes, the inhibiting effect of SB50 is minimal, therefore we are effectively comparing Activin at endpoint with Activin at endpoint, leading to no enrichment---not only in receptor signalling, but in any term. However, because the later we add SB50, the lesser its effect, one would expect that adding SB50 at 120 minutes would lead to an even less intense Activin inhibition, and therefore no enrichment of receptors. If at 60 minutes SB50 cannot rescue the receptors at endpoint, adding it at later stages should be even less effective.
-
-However, we do see an enrichment of receptor signalling terms at 120 minutes. That led me to explore the direction of enrichment, meaning: Are the genes driving GO enrichment upregulated or downregulated? Figure~\ref{fig:receptors_go} shows that information.
 
 \begin{figure*}[t]
 \centering
@@ -187,13 +225,6 @@ However, we do see an enrichment of receptor signalling terms at 120 minutes. Th
 \caption{Molecular Function GO term enrichment analysis for Experiment 1 (top) and Experiment 2 (bottom). In Experiment 1, each panel corresponds to a different timepoint (60min, 120min, 240min), with different Activin concentrations (0ng/ml, 5ng/ml, 15ng/ml) compared to the control (0ng/ml). In Experiment 2, each panel corresponds to a different comparison: Activin vs.\ Control (left), SB50 vs.\ Control (centre), SB50 vs.\ Activin (right). Only the top 10 enriched terms per condition are shown.}
 \label{fig:go_mf}
 \end{figure*}
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=\columnwidth]{results/exp2_go_genes_direction.pdf}
-\caption{Direction of gene expression changes for genes driving the `signalling receptor activity' GO term enrichment in Experiment 2 comparisons.}
-\label{fig:receptors_go}
-\end{figure}
 
 
 \section{Conclusion}
