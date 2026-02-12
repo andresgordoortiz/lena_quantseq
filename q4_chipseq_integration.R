@@ -10,11 +10,12 @@
 #                 Foxh1 binding site (motif presence)
 #   Genes marked with ^ in Smad2 data are upregulated by ndr1 overexpression
 #
-# QUESTIONS:
-#   1. For each candidate gene, report Smad2, EomesA, and Foxh1 ChIP-seq binding
-#   2. Compare temporal dynamics of candidate genes vs. Nodal score (direct targets)
-#   3. Compute reversibility in Exp2 (SB50 conditions) for candidates vs. Nodal score
-#   4. Validate candidate gene list against DE results; propose alternatives
+# OUTPUT FIGURES:
+#   1. ChIP-seq binding heatmap (candidates + Nodal score)
+#   2. Temporal behaviour clusters (2×2 facet: 4 response patterns)
+#   3. Reversibility expression profile (Exp2 mean expression per condition)
+#   4. Integrated overview scatter (split: candidates / Nodal score)
+#   5. Candidate validation volcano
 #
 
 library(DESeq2)
@@ -26,7 +27,7 @@ library(patchwork)
 library(ggrepel)
 
 # ============================================================================
-# LOAD AND PREPARE DATA (consistent with previous scripts)
+# LOAD AND PREPARE DATA (identical to q3_sb50_comparison.R)
 # ============================================================================
 
 counts_raw <- read.table("salmon.merged.gene_counts.tsv", header = TRUE, row.names = 1)
@@ -34,27 +35,26 @@ counts_raw <- counts_raw[, -1]
 counts_int <- round(counts_raw)
 
 samples <- read_csv("samples.csv", show_col_types = FALSE)
-parse_sample_names <- function(sample_name) {
-  sub("^\\d{8}_R\\d+_", "", sample_name)
-}
-clean_treatments <- sapply(samples$sample_description, parse_sample_names, USE.NAMES = FALSE)
 
+# Parse treatment names (identical to q3)
 metadata <- data.frame(
   sample = paste0("S", samples$requests_sample_sample_id),
-  treatment = clean_treatments,
+  treatment = sub("^\\d{8}_R\\d+_", "", samples$sample_description),
   row.names = paste0("S", samples$requests_sample_sample_id)
 )
 
 metadata$experiment <- ifelse(grepl("DMSO|SB50", metadata$treatment), "Exp2", "Exp1")
+
+# Classification: most specific patterns first (matches q3 exactly)
 metadata$concentration <- case_when(
-  grepl("^0ngmlActivin", metadata$treatment) ~ "0ngml",
-  grepl("^5ngmlActivin", metadata$treatment) ~ "5ngml",
-  grepl("^10ngmlActivin", metadata$treatment) ~ "10ngml",
-  grepl("^15ngmlActivin", metadata$treatment) ~ "15ngml",
-  grepl("DMSO", metadata$treatment) & grepl("^0ngml", metadata$treatment) ~ "0ngml_DMSO",
+  grepl("^50uMSB50", metadata$treatment) ~ "SB50",
   grepl("DMSO", metadata$treatment) & grepl("^15ngml", metadata$treatment) ~ "15ngml_DMSO",
-  grepl("SB50", metadata$treatment) ~ "SB50",
-  TRUE ~ NA_character_
+  grepl("DMSO", metadata$treatment) & grepl("^0ngml", metadata$treatment)  ~ "0ngml_DMSO",
+  grepl("^15ngmlActivin", metadata$treatment) ~ "15ngml",
+  grepl("^10ngmlActivin", metadata$treatment) ~ "10ngml",
+  grepl("^5ngmlActivin", metadata$treatment)  ~ "5ngml",
+  grepl("^0ngmlActivin", metadata$treatment) & !grepl("DMSO", metadata$treatment) ~ "0ngml",
+  TRUE ~ "other"
 )
 metadata$time_min <- as.numeric(str_extract(metadata$treatment, "\\d+(?=min$)"))
 
@@ -67,30 +67,21 @@ counts_filtered <- counts_int[keep, ]
 
 cat("Total samples:", ncol(counts_filtered), "\n")
 cat("Genes after filtering:", nrow(counts_filtered), "\n")
+cat("\nConcentration breakdown:\n")
+print(table(metadata$concentration, metadata$experiment))
 
 # ============================================================================
 # DEFINE GENE LISTS
 # ============================================================================
 #
-# TWO GENE SETS:
-#   1. NODAL SCORE (27 genes): Curated from the literature as established
-#      *direct* targets of Nodal/Activin signalling (e.g. gsc, lft1, ndr1,
-#      sox32). These are the canonical downstream effectors, many of which
-#      are known to be bound by Smad2 and its co-factors (Foxh1, EomesA).
+#   NODAL SCORE (27 genes): Established direct Nodal/Activin targets from
+#     the literature (e.g. gsc, lft1, ndr1, sox32).
 #
-#   2. CANDIDATE LIST (18 genes): Genes of interest identified in Lena's
-#      experiments as Activin-responsive, but whose status as direct vs
-#      indirect targets is uncertain. By overlaying ChIP-seq binding data
-#      we can assess which candidates have evidence of direct TF binding
-#      (Smad2/EomesA peaks ± Foxh1 motifs), and by comparing their temporal
-#      dynamics and reversibility to the Nodal score we can gauge whether
-#      they behave like primary or secondary response genes.
+#   CANDIDATE LIST (18 genes): Genes identified as Activin-responsive in
+#     Lena's experiments, but whose direct/indirect status is unknown.
 #
-#   OVERLAP: Some genes appear in both lists (dkk1b, kirrel3l, flrt3,
-#   efnb2a). These are handled by assigning each gene to ONE group only:
-#   if it is in the Nodal score it is labelled "Nodal score", otherwise
-#   "Candidate". This avoids duplication artifacts in downstream analyses.
-#
+#   OVERLAP: dkk1b, kirrel3l, flrt3, efnb2a appear in both. They are
+#     assigned to the Nodal score group to avoid duplication.
 
 candidate_genes <- c("rhov", "net1", "flrt3", "rnd1b", "dkk1b", "plekha5b",
                      "rasgef1ba", "efna1a", "osr1", "frmd4ba", "abi1b",
@@ -100,73 +91,49 @@ candidate_genes <- c("rhov", "net1", "flrt3", "rnd1b", "dkk1b", "plekha5b",
 nodal_score_data <- read_excel("docs/nodal-score-genes_complete.xlsx", skip = 1)
 nodal_genes <- unique(tolower(na.omit(nodal_score_data$`Nodal score`)))
 
-# Genes shared between both lists
 overlapping_genes <- intersect(candidate_genes, nodal_genes)
-cat("Overlapping genes:", paste(overlapping_genes, collapse = ", "), "\n")
-
-# For expression analyses, assign each gene to ONE group to avoid duplication:
-# overlapping genes go to "Nodal score" (the established set)
 candidate_genes_unique <- setdiff(candidate_genes, nodal_genes)
 
 cat("Candidate genes:", length(candidate_genes), "(", length(candidate_genes_unique), "unique)\n")
 cat("Nodal score genes:", length(nodal_genes), "\n")
+cat("Overlapping:", paste(overlapping_genes, collapse = ", "), "\n")
+
+# Colour palette (consistent throughout)
+group_colors <- c("Candidate" = "#E66101", "Nodal score" = "#5E3C99")
 
 # ============================================================================
-# PART 1: ChIP-seq binding summary for candidate genes
+# PART 1: ChIP-seq Binding Summary + Heatmap
 # ============================================================================
 
 cat("\n")
 cat(strrep("=", 70), "\n")
-cat("PART 1: ChIP-seq Binding Summary for Candidate Genes\n")
+cat("PART 1: ChIP-seq Binding Summary\n")
 cat(strrep("=", 70), "\n\n")
 
-# Read ChIP-seq data
 smad2_chipseq <- read_excel("12915_2014_81_MOESM4_ESM.xlsx", skip = 3)
 eomesa_chipseq <- read_excel("12915_2014_81_MOESM10_ESM.xlsx", skip = 2)
 
-# Function to search for a gene in ChIP-seq proximal gene lists
 search_chipseq <- function(gene_name, chipseq_df, chip_factor) {
-  # Match gene name as whole word in semicolon-separated list
-  # Gene names may have ^ suffix (ndr1-upregulated marker in Smad2 data)
   pattern <- paste0("(?i)(^|;)", gene_name, "(\\^)?[;]")
   matches <- chipseq_df %>%
     filter(grepl(pattern, `Proximal gene`, perl = TRUE))
 
   if (nrow(matches) == 0) {
-    return(tibble(
-      gene = gene_name,
-      chip_factor = chip_factor,
-      n_peaks = 0,
-      peak_ids = NA_character_,
-      has_foxh1_motif = FALSE,
-      foxh1_motifs = NA_character_,
-      ndr1_upregulated = NA
-    ))
-  }
-
-  has_foxh1 <- any(!is.na(matches$`Foxh1 binding site`))
-  foxh1_seqs <- paste(na.omit(matches$`Foxh1 binding site`), collapse = "; ")
-  if (foxh1_seqs == "") foxh1_seqs <- NA_character_
-
-  # Check for ^ marker (only in Smad2 data)
-  ndr1_up <- if (chip_factor == "Smad2") {
-    any(grepl(paste0("(?i)", gene_name, "\\^"), matches$`Proximal gene`, perl = TRUE))
-  } else {
-    NA
+    return(tibble(gene = gene_name, chip_factor = chip_factor,
+                  n_peaks = 0, has_foxh1_motif = FALSE, ndr1_upregulated = NA))
   }
 
   tibble(
     gene = gene_name,
     chip_factor = chip_factor,
     n_peaks = nrow(matches),
-    peak_ids = paste(matches$`Peak ID`, collapse = "; "),
-    has_foxh1_motif = has_foxh1,
-    foxh1_motifs = foxh1_seqs,
-    ndr1_upregulated = ndr1_up
+    has_foxh1_motif = any(!is.na(matches$`Foxh1 binding site`)),
+    ndr1_upregulated = if (chip_factor == "Smad2") {
+      any(grepl(paste0("(?i)", gene_name, "\\^"), matches$`Proximal gene`, perl = TRUE))
+    } else NA
   )
 }
 
-# Search all candidate genes in both ChIP-seq datasets
 all_genes_to_check <- unique(c(candidate_genes, nodal_genes))
 
 chipseq_results <- bind_rows(
@@ -174,69 +141,45 @@ chipseq_results <- bind_rows(
   map_dfr(all_genes_to_check, ~ search_chipseq(.x, eomesa_chipseq, "EomesA"))
 )
 
-# Create summary table for candidate genes
-candidate_chip_summary <- chipseq_results %>%
-  filter(gene %in% candidate_genes) %>%
-  pivot_wider(
-    id_cols = gene,
-    names_from = chip_factor,
-    values_from = c(n_peaks, has_foxh1_motif, ndr1_upregulated),
-    names_sep = "_"
-  ) %>%
-  mutate(
-    Smad2_bound = n_peaks_Smad2 > 0,
-    EomesA_bound = n_peaks_EomesA > 0,
-    Foxh1_at_Smad2 = has_foxh1_motif_Smad2,
-    Foxh1_at_EomesA = has_foxh1_motif_EomesA,
-    ndr1_up = ndr1_upregulated_Smad2
-  ) %>%
-  dplyr::select(gene, Smad2_bound, n_peaks_Smad2, Foxh1_at_Smad2, ndr1_up,
-                EomesA_bound, n_peaks_EomesA, Foxh1_at_EomesA) %>%
-  arrange(gene)
+# Build ChIP-seq summary tables
+make_chip_summary <- function(genes) {
+  chipseq_results %>%
+    filter(gene %in% genes) %>%
+    pivot_wider(id_cols = gene, names_from = chip_factor,
+                values_from = c(n_peaks, has_foxh1_motif, ndr1_upregulated),
+                names_sep = "_") %>%
+    mutate(
+      Smad2_bound = n_peaks_Smad2 > 0,
+      EomesA_bound = n_peaks_EomesA > 0,
+      Foxh1_at_Smad2 = has_foxh1_motif_Smad2,
+      Foxh1_at_EomesA = has_foxh1_motif_EomesA,
+      ndr1_up = ndr1_upregulated_Smad2
+    ) %>%
+    dplyr::select(gene, Smad2_bound, n_peaks_Smad2, Foxh1_at_Smad2, ndr1_up,
+                  EomesA_bound, n_peaks_EomesA, Foxh1_at_EomesA) %>%
+    arrange(gene)
+}
 
-cat("=== ChIP-seq Binding Summary: Candidate Genes ===\n")
+candidate_chip_summary <- make_chip_summary(candidate_genes)
+nodal_chip_summary <- make_chip_summary(nodal_genes)
+
+cat("=== Candidate Genes ===\n")
 print(as.data.frame(candidate_chip_summary), row.names = FALSE)
-
-# Same for Nodal score genes (for reference)
-nodal_chip_summary <- chipseq_results %>%
-  filter(gene %in% nodal_genes) %>%
-  pivot_wider(
-    id_cols = gene,
-    names_from = chip_factor,
-    values_from = c(n_peaks, has_foxh1_motif, ndr1_upregulated),
-    names_sep = "_"
-  ) %>%
-  mutate(
-    Smad2_bound = n_peaks_Smad2 > 0,
-    EomesA_bound = n_peaks_EomesA > 0,
-    Foxh1_at_Smad2 = has_foxh1_motif_Smad2,
-    Foxh1_at_EomesA = has_foxh1_motif_EomesA,
-    ndr1_up = ndr1_upregulated_Smad2
-  ) %>%
-  dplyr::select(gene, Smad2_bound, n_peaks_Smad2, Foxh1_at_Smad2, ndr1_up,
-                EomesA_bound, n_peaks_EomesA, Foxh1_at_EomesA) %>%
-  arrange(gene)
-
-cat("\n=== ChIP-seq Binding Summary: Nodal Score Genes ===\n")
+cat("\n=== Nodal Score Genes ===\n")
 print(as.data.frame(nodal_chip_summary), row.names = FALSE)
 
-# Save combined summary
 write_csv(candidate_chip_summary, "q4_chipseq_candidates.csv")
 write_csv(nodal_chip_summary, "q4_chipseq_nodal.csv")
 
-# ============================================================================
-# PART 1 FIGURE: ChIP-seq binding heatmap for candidate genes
-# ============================================================================
+# --- FIGURE 1: ChIP-seq binding heatmap ---
 
-# Prepare data for heatmap-style dot plot
 chip_plot_data <- bind_rows(
   candidate_chip_summary %>% mutate(gene_group = "Candidate"),
   nodal_chip_summary %>% mutate(gene_group = "Nodal score")
 ) %>%
   pivot_longer(
     cols = c(Smad2_bound, EomesA_bound, Foxh1_at_Smad2, Foxh1_at_EomesA),
-    names_to = "feature",
-    values_to = "present"
+    names_to = "feature", values_to = "present"
   ) %>%
   mutate(
     feature = case_when(
@@ -266,7 +209,7 @@ p_chip <- ggplot(chip_plot_data, aes(x = feature, y = gene)) +
     title = "ChIP-seq binding evidence",
     subtitle = "Smad2 & EomesA peaks ± Foxh1 motif (Nelson et al. 2014)"
   ) +
-  theme_minimal(base_size = 10, base_family = "Helvetica") +
+  theme_minimal(base_size = 10) +
   theme(
     panel.grid = element_blank(),
     axis.text.x = element_text(size = 9, angle = 45, hjust = 1),
@@ -274,16 +217,14 @@ p_chip <- ggplot(chip_plot_data, aes(x = feature, y = gene)) +
     strip.text.y = element_text(size = 10, face = "bold", angle = 0),
     legend.position = "bottom",
     plot.title = element_text(size = 12, face = "bold"),
-    plot.subtitle = element_text(size = 9, color = "#666666")
+    plot.subtitle = element_text(size = 9, color = "grey50")
   )
 
-pdf("q4_chipseq_binding_heatmap.pdf", width = 6, height = 12, family = "Helvetica")
-print(p_chip)
-dev.off()
+ggsave("q4_chipseq_binding_heatmap.pdf", p_chip, width = 6, height = 12)
 cat("\nSaved: q4_chipseq_binding_heatmap.pdf\n")
 
 # ============================================================================
-# PART 2: Temporal Dynamics – Candidate Genes vs. Nodal Score
+# PART 2: Temporal Dynamics & Behaviour Clustering
 # ============================================================================
 
 cat("\n")
@@ -291,79 +232,50 @@ cat(strrep("=", 70), "\n")
 cat("PART 2: Temporal Dynamics in Experiment 1\n")
 cat(strrep("=", 70), "\n\n")
 
-# Use Experiment 1: 15 ng/ml Activin at different timepoints
-# Normalize all Exp1 samples together
-exp1_meta <- metadata %>%
-  filter(experiment == "Exp1")
-
+# Normalize Exp1 samples
+exp1_meta <- metadata %>% filter(experiment == "Exp1")
 exp1_counts <- counts_filtered[, rownames(exp1_meta)]
 
 dds_exp1 <- DESeqDataSetFromMatrix(
-  countData = exp1_counts,
-  colData = exp1_meta,
-  design = ~ 1
+  countData = exp1_counts, colData = exp1_meta, design = ~ 1
 )
 dds_exp1 <- estimateSizeFactors(dds_exp1)
 norm_counts_exp1 <- counts(dds_exp1, normalized = TRUE)
 
-# Focus on 15 ng/ml Activin and 0 ng/ml control across timepoints
 exp1_15ngml <- exp1_meta %>% filter(concentration == "15ngml")
 exp1_0ngml  <- exp1_meta %>% filter(concentration == "0ngml")
-
-# For each gene: compute log2FC at each timepoint (15 ng/ml vs mean of 0 ng/ml at same time)
 timepoints <- sort(unique(exp1_15ngml$time_min))
 
-# Genes available in the count matrix (use unique sets to avoid duplication)
 available_candidates <- candidate_genes_unique[candidate_genes_unique %in% tolower(rownames(norm_counts_exp1))]
 available_nodal <- nodal_genes[nodal_genes %in% tolower(rownames(norm_counts_exp1))]
 
-cat("Available candidate genes:", length(available_candidates), "of", length(candidate_genes), "\n")
-cat("  Missing:", paste(setdiff(candidate_genes, available_candidates), collapse = ", "), "\n")
-cat("Available Nodal score genes:", length(available_nodal), "of", length(nodal_genes), "\n")
-cat("  Missing:", paste(setdiff(nodal_genes, available_nodal), collapse = ", "), "\n\n")
+cat("Available candidates:", length(available_candidates), "of", length(candidate_genes_unique), "\n")
+cat("Available Nodal genes:", length(available_nodal), "of", length(nodal_genes), "\n\n")
 
-# Compute temporal expression profiles (normalized counts, log2-transformed)
-compute_temporal_profile <- function(genes, norm_mat, meta_15, meta_0, timepoints) {
-  profiles <- map_dfr(genes, function(gene) {
-    # Case-insensitive row matching
+# Compute log2FC at each timepoint
+compute_temporal_profile <- function(genes, norm_mat, meta_15, meta_0, tp) {
+  map_dfr(genes, function(gene) {
     row_idx <- which(tolower(rownames(norm_mat)) == gene)
     if (length(row_idx) == 0) return(NULL)
-
-    map_dfr(timepoints, function(tp) {
-      treated_samples <- rownames(meta_15)[meta_15$time_min == tp]
-      control_samples <- rownames(meta_0)[meta_0$time_min == tp]
-
-      if (length(treated_samples) == 0 || length(control_samples) == 0) return(NULL)
-
-      treated_vals <- norm_mat[row_idx, treated_samples]
-      control_vals <- norm_mat[row_idx, control_samples]
-
-      # Log2 fold change (pseudocount of 1)
-      log2fc <- log2(mean(treated_vals) + 1) - log2(mean(control_vals) + 1)
-
-      tibble(
-        gene = gene,
-        time_min = tp,
-        log2fc = log2fc,
-        mean_treated = mean(treated_vals),
-        mean_control = mean(control_vals)
-      )
+    map_dfr(tp, function(t) {
+      treated <- norm_mat[row_idx, rownames(meta_15)[meta_15$time_min == t]]
+      control <- norm_mat[row_idx, rownames(meta_0)[meta_0$time_min == t]]
+      if (length(treated) == 0 || length(control) == 0) return(NULL)
+      tibble(gene = gene, time_min = t,
+             log2fc = log2(mean(treated) + 1) - log2(mean(control) + 1))
     })
   })
-  return(profiles)
 }
 
 profiles_candidates <- compute_temporal_profile(available_candidates, norm_counts_exp1,
-                                                 exp1_15ngml, exp1_0ngml, timepoints)
+                                                 exp1_15ngml, exp1_0ngml, timepoints) %>%
+  mutate(gene_group = "Candidate")
 profiles_nodal <- compute_temporal_profile(available_nodal, norm_counts_exp1,
-                                            exp1_15ngml, exp1_0ngml, timepoints)
-
-profiles_candidates$gene_group <- "Candidate"
-profiles_nodal$gene_group <- "Nodal score"
-
+                                            exp1_15ngml, exp1_0ngml, timepoints) %>%
+  mutate(gene_group = "Nodal score")
 all_profiles <- bind_rows(profiles_candidates, profiles_nodal)
 
-# Compute peak expression time for each gene
+# Peak times
 peak_times <- all_profiles %>%
   group_by(gene, gene_group) %>%
   summarise(
@@ -372,260 +284,177 @@ peak_times <- all_profiles %>%
     direction = ifelse(log2fc[which.max(abs(log2fc))] > 0, "Up", "Down"),
     .groups = "drop"
   )
-
-cat("=== Peak Expression Times ===\n")
-cat("\nCandidate genes:\n")
-peak_cand <- peak_times %>% filter(gene_group == "Candidate") %>% arrange(peak_time)
-print(as.data.frame(peak_cand), row.names = FALSE)
-
-cat("\nNodal score genes:\n")
-peak_nodal <- peak_times %>% filter(gene_group == "Nodal score") %>% arrange(peak_time)
-print(as.data.frame(peak_nodal), row.names = FALSE)
-
 write_csv(peak_times, "q4_peak_expression_times.csv")
 
-# ============================================================================
-# PART 2 FIGURE: Temporal behaviour clustering
-# ============================================================================
+# --- Cluster genes into 4 categories by temporal profile ---
 #
-# Instead of individual gene facets, cluster genes by their temporal
-# expression pattern and plot overlaid lines within each cluster panel.
-# This reduces visual complexity while highlighting shared behaviours.
+# Four behaviour classes:
+#   1. Down-regulated: Mean log2FC is negative across most timepoints
+#   2. Time-exposure sensitive: Peak response at early/mid timepoints, declines later
+#   3. Sustained activation: Steady increase or plateau at high log2FC
+#   4. Other: Mixed or weak patterns
+#
 
-# Step 1: Prepare normalised profile matrix for shape-based clustering
-profile_wide <- all_profiles %>%
-  dplyr::select(gene, time_min, log2fc) %>%
-  pivot_wider(names_from = time_min, values_from = log2fc) %>%
-  column_to_rownames("gene")
+classify_temporal <- function(gene_name, gene_df) {
+  fc <- gene_df$log2fc
+  tp <- gene_df$time_min
+  n_tp <- length(fc)
+  mean_fc <- mean(fc)
+  max_fc <- max(fc)
+  min_fc <- min(fc)
+  last_fc <- fc[n_tp]
+  peak_idx <- which.max(abs(fc))
+  peak_fc <- fc[peak_idx]
 
-# Normalise each gene's profile to unit max (shape-only comparison)
-profile_norm <- t(apply(profile_wide, 1, function(x) {
-  mx <- max(abs(x))
-  if (mx == 0) return(x)
-  x / mx
-}))
+  # Monotonic increase check
+  diffs <- diff(fc)
+  mostly_up <- sum(diffs > -0.1) >= (n_tp - 2)
 
-# Step 2: Hierarchical clustering (Ward's method on Euclidean distance)
-dist_mat <- dist(profile_norm, method = "euclidean")
-hc <- hclust(dist_mat, method = "ward.D2")
+  if (mean_fc < -0.2 & sum(fc < 0) >= ceiling(n_tp / 2)) {
+    return("Down-regulated")
+  } else if (peak_fc > 0.3 & peak_idx < n_tp & last_fc < 0.7 * max_fc) {
+    return("Time-exposure sensitive")
+  } else if (mean_fc > 0.3 & mostly_up) {
+    return("Sustained activation")
+  } else {
+    return("Other")
+  }
+}
 
-# Determine number of clusters (target 3–5, based on gene count)
-n_genes_total <- nrow(profile_norm)
-k <- min(5, max(3, ceiling(n_genes_total / 8)))
-gene_clusters <- tibble(
-  gene = rownames(profile_norm),
-  cluster_id = cutree(hc, k = k)
-)
+gene_clusters <- all_profiles %>%
+  group_by(gene, gene_group) %>%
+  group_modify(~ tibble(cluster = classify_temporal(.y$gene, .x))) %>%
+  ungroup()
 
-# Step 3: Label each cluster by its average temporal profile shape
-cluster_avg <- all_profiles %>%
-  inner_join(gene_clusters, by = "gene") %>%
-  group_by(cluster_id, time_min) %>%
-  summarise(mean_fc = mean(log2fc), .groups = "drop")
+gene_clusters$cluster <- factor(gene_clusters$cluster,
+  levels = c("Down-regulated", "Time-exposure sensitive", "Sustained activation", "Other"))
 
-cluster_labels <- cluster_avg %>%
-  group_by(cluster_id) %>%
-  summarise(
-    peak_val = mean_fc[which.max(abs(mean_fc))],
-    peak_time = time_min[which.max(abs(mean_fc))],
-    first_val = mean_fc[time_min == min(time_min)],
-    last_val  = mean_fc[time_min == max(time_min)],
-    all_pos   = all(mean_fc > 0),
-    all_neg   = all(mean_fc < 0),
-    monotone_up   = all(diff(mean_fc) >= -0.05),
-    monotone_down = all(diff(mean_fc) <= 0.05),
-    transient = abs(last_val) < 0.4 * abs(peak_val),
-    label = case_when(
-      all_neg  ~ "Sustained repression",
-      all_pos & monotone_up ~ "Progressive activation",
-      all_pos & transient   ~ "Early transient up",
-      all_pos               ~ "Sustained activation",
-      peak_val > 0 & first_val < 0 ~ "Delayed activation",
-      peak_val < 0 & last_val > 0  ~ "Transient repression",
-      TRUE ~ ifelse(peak_val > 0, "Up-regulated", "Down-regulated")
-    ),
-    .groups = "drop"
-  )
-
-gene_clusters <- gene_clusters %>%
-  left_join(cluster_labels %>% dplyr::select(cluster_id, label), by = "cluster_id")
-
-# Merge gene group info
-gene_clusters <- gene_clusters %>%
-  left_join(all_profiles %>% distinct(gene, gene_group), by = "gene")
-
-# Cluster summary
 cat("=== Temporal Behaviour Clusters ===\n")
-for (cl in sort(unique(gene_clusters$cluster_id))) {
-  cl_genes <- gene_clusters %>% filter(cluster_id == cl)
-  cat(sprintf("  Cluster %d – %s (%d genes): %s\n",
-              cl, cl_genes$label[1], nrow(cl_genes),
+for (cl in levels(gene_clusters$cluster)) {
+  cl_genes <- gene_clusters %>% filter(cluster == cl)
+  cat(sprintf("  %s (%d): %s\n", cl, nrow(cl_genes),
               paste(cl_genes$gene, collapse = ", ")))
 }
 
 write_csv(gene_clusters, "q4_temporal_clusters.csv")
 
-# Step 4: Plot – one panel per cluster, lines coloured by gene group
-cluster_plot_data <- all_profiles %>%
-  inner_join(gene_clusters %>% dplyr::select(gene, cluster_id, label, gene_group),
-             by = c("gene", "gene_group"))
+# --- FIGURE 2: 2×2 cluster facet plot with gene labels ---
 
-# Add gene count to facet label
-cluster_n <- cluster_plot_data %>%
-  distinct(gene, label) %>%
-  count(label, name = "n_genes") %>%
-  mutate(facet_label = paste0(label, " (n = ", n_genes, ")"))
+cluster_plot_data <- all_profiles %>%
+  inner_join(gene_clusters, by = c("gene", "gene_group"))
+
+# Build facet labels with gene count
+cluster_gene_labels <- gene_clusters %>%
+  group_by(cluster) %>%
+  summarise(
+    n = n(),
+    gene_list = paste(gene, collapse = ", "),
+    .groups = "drop"
+  ) %>%
+  mutate(facet_label = paste0(cluster, " (n = ", n, ")"))
 
 cluster_plot_data <- cluster_plot_data %>%
-  left_join(cluster_n, by = "label")
+  left_join(cluster_gene_labels %>% dplyr::select(cluster, facet_label), by = "cluster")
 
-group_colors <- c("Candidate" = "#E66101", "Nodal score" = "#5E3C99")
-
-# Cluster average trajectory per group (heavy line)
+# Cluster mean per group (thick line)
 cluster_ribbon <- cluster_plot_data %>%
   group_by(facet_label, gene_group, time_min) %>%
-  summarise(
-    mean_fc = mean(log2fc),
-    sd_fc   = sd(log2fc),
-    .groups = "drop"
-  )
+  summarise(mean_fc = mean(log2fc), sd_fc = sd(log2fc), .groups = "drop")
 
-p_clusters <- ggplot(cluster_plot_data,
-       aes(x = time_min, y = log2fc)) +
+# Prepare gene-name annotations to display inside each panel
+gene_annotations <- cluster_plot_data %>%
+  distinct(gene, gene_group, facet_label) %>%
+  group_by(facet_label, gene_group) %>%
+  summarise(genes_text = paste(sort(gene), collapse = ", "), .groups = "drop")
+
+p_clusters <- ggplot(cluster_plot_data, aes(x = time_min, y = log2fc)) +
   # Individual gene traces (thin, transparent)
   geom_line(aes(group = gene, color = gene_group), alpha = 0.35, linewidth = 0.4) +
-  # Cluster mean per group (heavy line)
+  # Cluster mean per group
   geom_line(data = cluster_ribbon,
             aes(y = mean_fc, color = gene_group, group = gene_group),
             linewidth = 1.2) +
   geom_point(data = cluster_ribbon,
              aes(y = mean_fc, color = gene_group), size = 2) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "#999999", linewidth = 0.3) +
-  facet_wrap(~ facet_label, scales = "free_y", ncol = 3) +
-  scale_color_manual(values = group_colors, name = "Gene group") +
+  # Gene names as text annotation at bottom of each panel
+  geom_text(data = gene_annotations,
+            aes(x = mean(timepoints), y = -Inf, label = genes_text, color = gene_group),
+            vjust = -0.3, size = 2.2, fontface = "italic",
+            position = position_dodge(width = 40), show.legend = FALSE) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50", linewidth = 0.3) +
+  facet_wrap(~ facet_label, scales = "free_y", ncol = 2) +
+  scale_color_manual(values = group_colors, name = NULL) +
   scale_x_continuous(breaks = timepoints) +
   labs(
-    x = "Time (min)", y = expression(log[2]~"FC (15 vs 0 ng/ml)"),
+    x = "Time (min)", y = "log2FC (15 vs 0 ng/ml Activin)",
     title = "Temporal behaviour clusters",
-    subtitle = "Genes grouped by Activin response pattern (Experiment 1)",
-    caption = "Thin lines: individual genes | Thick lines: cluster mean per group"
+    subtitle = "Experiment 1 – gene expression response over time at 15 ng/ml Activin"
   ) +
-  theme_bw(base_size = 10, base_family = "Helvetica") +
+  theme_minimal(base_size = 10) +
   theme(
     panel.grid.minor = element_blank(),
-    strip.text = element_text(size = 9, face = "bold"),
+    strip.text = element_text(size = 10, face = "bold"),
     legend.position = "bottom",
-    plot.title = element_text(size = 13, face = "bold"),
-    plot.subtitle = element_text(size = 10, color = "#666666"),
-    plot.caption = element_text(size = 8, hjust = 0, color = "#666666")
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 10, hjust = 0.5, color = "grey50")
   )
 
-# Summary statistics: mean |log2FC| trajectory per group with ribbon
-group_summary <- all_profiles %>%
-  group_by(gene_group, time_min) %>%
-  summarise(
-    mean_abs_log2fc = mean(abs(log2fc)),
-    sd_abs_log2fc = sd(abs(log2fc)),
-    mean_log2fc = mean(log2fc),
-    sd_log2fc = sd(log2fc),
-    .groups = "drop"
-  )
-
-p_temporal_summary <- ggplot(group_summary,
-       aes(x = time_min, y = mean_abs_log2fc, color = gene_group, fill = gene_group)) +
-  geom_ribbon(aes(ymin = pmax(0, mean_abs_log2fc - sd_abs_log2fc),
-                  ymax = mean_abs_log2fc + sd_abs_log2fc),
-              alpha = 0.2, color = NA) +
-  geom_line(linewidth = 1.2) +
-  geom_point(size = 3) +
-  scale_color_manual(values = group_colors, name = "") +
-  scale_fill_manual(values = group_colors, name = "") +
-  scale_x_continuous(breaks = timepoints) +
-  labs(
-    x = "Time (min)", y = expression("Mean |" * log[2] * " FC|"),
-    title = "Response magnitude over time"
-  ) +
-  theme_bw(base_size = 10, base_family = "Helvetica") +
-  theme(
-    panel.grid.minor = element_blank(),
-    legend.position = "bottom",
-    plot.title = element_text(size = 11, face = "bold")
-  )
-
-# Panel C: Peak time distribution comparison
-p_peak_dist <- ggplot(peak_times, aes(x = factor(peak_time), fill = gene_group)) +
-  geom_bar(position = position_dodge(width = 0.7), width = 0.6) +
-  scale_fill_manual(values = group_colors, name = "") +
-  labs(
-    x = "Time of peak |log₂FC| (min)", y = "Number of genes",
-    title = "Peak response timing"
-  ) +
-  theme_bw(base_size = 10, base_family = "Helvetica") +
-  theme(
-    panel.grid.minor = element_blank(),
-    legend.position = "bottom",
-    plot.title = element_text(size = 11, face = "bold")
-  )
-
-# Save cluster figure
-pdf("q4_temporal_clusters.pdf", width = 12, height = 7, family = "Helvetica")
-print(p_clusters)
-dev.off()
-
-# Summary figure: mean response + peak timing
-fig_temporal_summary <- (p_temporal_summary + p_peak_dist) +
-  plot_annotation(
-    title = "Temporal dynamics: Candidate genes vs. Nodal score targets",
-    subtitle = "Experiment 1 – 15 ng/ml Activin stimulation across time",
-    theme = theme(
-      plot.title = element_text(size = 14, face = "bold", hjust = 0.5,
-                                family = "Helvetica"),
-      plot.subtitle = element_text(size = 11, hjust = 0.5, color = "#666666",
-                                   family = "Helvetica")
-    )
-  )
-
-pdf("q4_temporal_dynamics.pdf", width = 12, height = 5, family = "Helvetica")
-print(fig_temporal_summary)
-dev.off()
-cat("\nSaved: q4_temporal_clusters.pdf, q4_temporal_dynamics.pdf\n")
+ggsave("q4_temporal_clusters.pdf", p_clusters, width = 10, height = 8)
+cat("\nSaved: q4_temporal_clusters.pdf\n")
 
 # ============================================================================
-# PART 3: Reversibility Analysis (Exp2)
+# PART 3: Reversibility (Exp2) – Expression Profile
 # ============================================================================
+#
+# REVERSIBILITY SCORE CALCULATION
+# ================================
+# All Exp2 samples are collected at 240 min.
+#
+#   Baseline = 0 ng/ml Activin + DMSO    (no stimulation)
+#   Activin  = 15 ng/ml Activin + DMSO   (max stimulation, no inhibitor)
+#   SB50     = 15 ng/ml Activin + 50 µM SB-431542 added at 60 / 120 / 180 min
+#
+# For each gene:
+#
+#   activin_effect = log2(Activin + 1) − log2(Baseline + 1)
+#     → how much Activin changed the gene from baseline
+#
+#   reversal = log2(Activin + 1) − log2(SB50 + 1)
+#     → how much SB50 brought expression back toward baseline
+#
+#   reversibility = reversal / activin_effect
+#     → fraction of the Activin effect that is reversed
+#
+#     = 1.0 → SB50 *fully* reversed the effect (expression returns to Baseline)
+#     = 0.0 → SB50 had *no* effect (expression stays at Activin level)
+#     = between 0 and 1 → partial reversal
+#
+# Genes with |activin_effect| < 0.1 log2 units are excluded — the Activin
+# effect is too small to meaningfully assess reversibility.
+#
 
 cat("\n")
 cat(strrep("=", 70), "\n")
 cat("PART 3: Reversibility in Experiment 2\n")
 cat(strrep("=", 70), "\n\n")
 
-# DESIGN:
-#   Reference: 15 ng/ml Activin + DMSO (maximum Activin stimulation)
-#   Test conditions: 0 ng/ml DMSO (baseline), SB50 at 60/120/180 min
-#   Reversibility = how much the gene returns toward baseline when SB50 is added
-#
-#   Reversibility score = (Activin - SB50) / (Activin - Baseline)
-#     = 1 if fully reversed (gene back to baseline)
-#     = 0 if not reversed at all (gene stays at Activin level)
-#     < 0 if SB50 amplifies the Activin effect
-#     > 1 if SB50 overcorrects past baseline
-
-# Normalize Exp2 samples
 exp2_meta <- metadata %>%
   filter(experiment == "Exp2") %>%
-  filter(!is.na(concentration))
+  filter(concentration != "other")
+
+cat("Exp2 samples:", nrow(exp2_meta), "\n")
+cat("  Baseline (0ngml_DMSO):", sum(exp2_meta$concentration == "0ngml_DMSO"), "\n")
+cat("  Activin (15ngml_DMSO):", sum(exp2_meta$concentration == "15ngml_DMSO"), "\n")
+cat("  SB50:", sum(exp2_meta$concentration == "SB50"), "\n\n")
 
 exp2_counts <- counts_filtered[, rownames(exp2_meta)]
 
 dds_exp2 <- DESeqDataSetFromMatrix(
-  countData = exp2_counts,
-  colData = exp2_meta,
-  design = ~ 1
+  countData = exp2_counts, colData = exp2_meta, design = ~ 1
 )
 dds_exp2 <- estimateSizeFactors(dds_exp2)
 norm_counts_exp2 <- counts(dds_exp2, normalized = TRUE)
 
-# Define conditions
 conditions <- list(
   baseline = exp2_meta %>% filter(concentration == "0ngml_DMSO"),
   activin  = exp2_meta %>% filter(concentration == "15ngml_DMSO"),
@@ -634,22 +463,15 @@ conditions <- list(
   sb50_180 = exp2_meta %>% filter(concentration == "SB50", time_min == 180)
 )
 
-# Compute mean normalized expression per condition per gene
-compute_mean_expr <- function(genes, norm_mat, conditions) {
+compute_mean_expr <- function(genes, norm_mat, conds) {
   map_dfr(genes, function(gene) {
     row_idx <- which(tolower(rownames(norm_mat)) == gene)
     if (length(row_idx) == 0) return(NULL)
-
-    map_dfr(names(conditions), function(cond_name) {
-      samps <- rownames(conditions[[cond_name]])
-      vals <- norm_mat[row_idx, samps]
-      tibble(
-        gene = gene,
-        condition = cond_name,
-        mean_expr = mean(vals),
-        sd_expr = sd(vals),
-        log2_mean = log2(mean(vals) + 1)
-      )
+    map_dfr(names(conds), function(cn) {
+      vals <- norm_mat[row_idx, rownames(conds[[cn]])]
+      tibble(gene = gene, condition = cn,
+             mean_expr = mean(vals), sd_expr = sd(vals),
+             log2_mean = log2(mean(vals) + 1))
     })
   })
 }
@@ -657,25 +479,16 @@ compute_mean_expr <- function(genes, norm_mat, conditions) {
 expr_candidates <- compute_mean_expr(available_candidates, norm_counts_exp2, conditions)
 expr_nodal <- compute_mean_expr(available_nodal, norm_counts_exp2, conditions)
 
-# Compute reversibility score for each gene at each SB50 timepoint
+# Reversibility scores
 compute_reversibility <- function(expr_df) {
-  # Pivot to wide format
-  expr_wide <- expr_df %>%
+  expr_df %>%
     dplyr::select(gene, condition, log2_mean) %>%
-    pivot_wider(names_from = condition, values_from = log2_mean)
-
-  # Compute reversibility at each SB50 timepoint
-  expr_wide %>%
+    pivot_wider(names_from = condition, values_from = log2_mean) %>%
     mutate(
-      # Delta = Activin effect = log2(Activin) - log2(Baseline)
       activin_effect = activin - baseline,
-      # Reversibility = fraction of Activin effect reversed by SB50
-      rev_60  = ifelse(abs(activin_effect) > 0.1,
-                       (activin - sb50_60) / activin_effect, NA_real_),
-      rev_120 = ifelse(abs(activin_effect) > 0.1,
-                       (activin - sb50_120) / activin_effect, NA_real_),
-      rev_180 = ifelse(abs(activin_effect) > 0.1,
-                       (activin - sb50_180) / activin_effect, NA_real_)
+      rev_60  = ifelse(abs(activin_effect) > 0.1, (activin - sb50_60) / activin_effect, NA_real_),
+      rev_120 = ifelse(abs(activin_effect) > 0.1, (activin - sb50_120) / activin_effect, NA_real_),
+      rev_180 = ifelse(abs(activin_effect) > 0.1, (activin - sb50_180) / activin_effect, NA_real_)
     ) %>%
     dplyr::select(gene, activin_effect, rev_60, rev_120, rev_180)
 }
@@ -684,122 +497,39 @@ rev_candidates <- compute_reversibility(expr_candidates) %>% mutate(gene_group =
 rev_nodal <- compute_reversibility(expr_nodal) %>% mutate(gene_group = "Nodal score")
 rev_all <- bind_rows(rev_candidates, rev_nodal)
 
-cat("=== Reversibility Scores (1 = fully reversed, 0 = not reversed) ===\n")
-cat("\nCandidate genes:\n")
-rev_cand_print <- rev_candidates %>%
+cat("=== Reversibility Scores ===\n\nCandidate genes:\n")
+print(as.data.frame(rev_candidates %>%
   dplyr::select(gene, activin_effect, rev_60, rev_120, rev_180) %>%
   mutate(across(where(is.numeric), ~ round(., 3))) %>%
-  arrange(desc(abs(activin_effect)))
-print(as.data.frame(rev_cand_print), row.names = FALSE)
+  arrange(desc(abs(activin_effect)))), row.names = FALSE)
 
 cat("\nNodal score genes:\n")
-rev_nod_print <- rev_nodal %>%
+print(as.data.frame(rev_nodal %>%
   dplyr::select(gene, activin_effect, rev_60, rev_120, rev_180) %>%
   mutate(across(where(is.numeric), ~ round(., 3))) %>%
-  arrange(desc(abs(activin_effect)))
-print(as.data.frame(rev_nod_print), row.names = FALSE)
+  arrange(desc(abs(activin_effect)))), row.names = FALSE)
 
 write_csv(rev_all, "q4_reversibility_scores.csv")
 
-# Statistical comparison of reversibility between groups
-cat("\n=== Statistical Comparison: Reversibility (Candidates vs Nodal Score) ===\n")
-for (tp in c("rev_60", "rev_120", "rev_180")) {
-  tp_label <- gsub("rev_", "SB50 @ ", tp)
-  vals_cand <- rev_candidates[[tp]]
-  vals_nod <- rev_nodal[[tp]]
-  vals_cand <- vals_cand[!is.na(vals_cand)]
-  vals_nod <- vals_nod[!is.na(vals_nod)]
+# --- FIGURE 3: Mean expression profile across Exp2 conditions ---
 
-  if (length(vals_cand) >= 3 && length(vals_nod) >= 3) {
-    wt <- wilcox.test(vals_cand, vals_nod)
-    cat(sprintf("  %smin: Candidates median=%.2f, Nodal median=%.2f, Wilcoxon p=%.4f\n",
-                tp_label, median(vals_cand), median(vals_nod), wt$p.value))
-  }
-}
-
-# ============================================================================
-# PART 3 FIGURE: Reversibility plots
-# ============================================================================
-
-# Panel A: Reversibility per gene (heatmap-style)
-rev_long <- rev_all %>%
-  pivot_longer(cols = c(rev_60, rev_120, rev_180),
-               names_to = "sb50_time", values_to = "reversibility") %>%
-  mutate(
-    sb50_time = case_when(
-      sb50_time == "rev_60" ~ "SB50 @ 60 min",
-      sb50_time == "rev_120" ~ "SB50 @ 120 min",
-      sb50_time == "rev_180" ~ "SB50 @ 180 min"
-    ),
-    sb50_time = factor(sb50_time, levels = c("SB50 @ 60 min", "SB50 @ 120 min", "SB50 @ 180 min")),
-    gene = factor(gene, levels = rev(
-      rev_all %>% arrange(gene_group, desc(abs(activin_effect))) %>% pull(gene) %>% unique()
-    ))
-  )
-
-p_rev_heatmap <- ggplot(rev_long %>% filter(!is.na(reversibility)) %>% droplevels(),
-       aes(x = sb50_time, y = gene, fill = reversibility)) +
-  geom_tile(color = "white", linewidth = 0.3) +
-  geom_text(aes(label = sprintf("%.1f", reversibility)),
-            size = 2.2, color = "black") +
-  scale_fill_gradient2(
-    low = "#B2182B", mid = "white", high = "#2166AC",
-    midpoint = 0.5, limits = c(-0.5, 1.5),
-    oob = scales::squish,
-    name = "Reversibility\nscore"
-  ) +
-  facet_grid(gene_group ~ ., scales = "free_y", space = "free_y") +
-  labs(x = "", y = "", title = "Reversibility per gene") +
-  theme_minimal(base_size = 10, base_family = "Helvetica") +
-  theme(
-    panel.grid = element_blank(),
-    axis.text.x = element_text(size = 9, angle = 30, hjust = 1),
-    axis.text.y = element_text(size = 7, face = "italic"),
-    strip.text.y = element_text(size = 10, face = "bold", angle = 0),
-    plot.title = element_text(size = 11, face = "bold")
-  )
-
-# Panel B: Box plot comparison of reversibility between groups
-p_rev_box <- ggplot(rev_long %>% filter(!is.na(reversibility)),
-       aes(x = sb50_time, y = reversibility, fill = gene_group)) +
-  geom_boxplot(alpha = 0.7, outlier.size = 1, width = 0.6,
-               position = position_dodge(width = 0.7)) +
-  geom_hline(yintercept = c(0, 1), linetype = c("dashed", "solid"),
-             color = c("#B2182B", "#2166AC"), linewidth = 0.4) +
-  scale_fill_manual(values = group_colors, name = "") +
-  labs(
-    x = "", y = "Reversibility score",
-    title = "Reversibility comparison",
-    caption = "Score = 1: fully reversed | Score = 0: not reversed"
-  ) +
-  coord_cartesian(ylim = c(-1, 2)) +
-  theme_bw(base_size = 10, base_family = "Helvetica") +
-  theme(
-    panel.grid.minor = element_blank(),
-    legend.position = "bottom",
-    plot.title = element_text(size = 11, face = "bold"),
-    plot.caption = element_text(size = 8, hjust = 0, color = "#666666")
-  )
-
-# Panel C: Expression profiles across Exp2 conditions (selected genes)
 expr_all <- bind_rows(
   expr_candidates %>% mutate(gene_group = "Candidate"),
   expr_nodal %>% mutate(gene_group = "Nodal score")
 ) %>%
   mutate(
     condition_label = case_when(
-      condition == "baseline" ~ "0 ng/ml\n(Baseline)",
-      condition == "activin" ~ "15 ng/ml\n(Activin)",
-      condition == "sb50_60" ~ "SB50\n60 min",
-      condition == "sb50_120" ~ "SB50\n120 min",
-      condition == "sb50_180" ~ "SB50\n180 min"
+      condition == "baseline" ~ "Baseline\n(0 ng/ml)",
+      condition == "activin"  ~ "Activin\n(15 ng/ml)",
+      condition == "sb50_60"  ~ "SB50\n@ 60 min",
+      condition == "sb50_120" ~ "SB50\n@ 120 min",
+      condition == "sb50_180" ~ "SB50\n@ 180 min"
     ),
     condition_label = factor(condition_label,
-                             levels = c("0 ng/ml\n(Baseline)", "15 ng/ml\n(Activin)",
-                                        "SB50\n60 min", "SB50\n120 min", "SB50\n180 min"))
+      levels = c("Baseline\n(0 ng/ml)", "Activin\n(15 ng/ml)",
+                 "SB50\n@ 60 min", "SB50\n@ 120 min", "SB50\n@ 180 min"))
   )
 
-# Normalize expression relative to baseline for comparability
 expr_norm <- expr_all %>%
   group_by(gene, gene_group) %>%
   mutate(
@@ -808,7 +538,6 @@ expr_norm <- expr_all %>%
   ) %>%
   ungroup()
 
-# Mean delta per group
 group_expr_summary <- expr_norm %>%
   group_by(gene_group, condition_label) %>%
   summarise(
@@ -821,59 +550,43 @@ group_expr_summary <- expr_norm %>%
 p_expr_profile <- ggplot(group_expr_summary,
        aes(x = condition_label, y = mean_delta, color = gene_group, group = gene_group)) +
   geom_ribbon(aes(ymin = mean_delta - se_delta, ymax = mean_delta + se_delta,
-                  fill = gene_group),
-              alpha = 0.15, color = NA) +
+                  fill = gene_group), alpha = 0.15, color = NA) +
   geom_line(linewidth = 1) +
   geom_point(size = 3) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "#999999", linewidth = 0.3) +
-  scale_color_manual(values = group_colors, name = "") +
-  scale_fill_manual(values = group_colors, name = "") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50", linewidth = 0.3) +
+  scale_color_manual(values = group_colors, name = NULL) +
+  scale_fill_manual(values = group_colors, name = NULL) +
   labs(
-    x = "", y = expression(Delta ~ log[2] ~ "(norm. counts) vs baseline"),
-    title = "Mean expression shift across Exp2 conditions",
-    caption = "Shading: ± SE"
+    x = "", y = expression(Delta ~ "log2(norm. counts) vs baseline"),
+    title = "Reversibility: mean expression shift across Exp2 conditions",
+    subtitle = "If SB50 reverses Activin effect, expression should return toward baseline (zero line)",
+    caption = paste0(
+      "Reversibility score = (log2 Activin − log2 SB50) / (log2 Activin − log2 Baseline)\n",
+      "Score 1 = fully reversed | Score 0 = not reversed | Shading = ± SE | All samples at 240 min"
+    )
   ) +
-  theme_bw(base_size = 10, base_family = "Helvetica") +
+  theme_minimal(base_size = 10) +
   theme(
     panel.grid.minor = element_blank(),
     legend.position = "bottom",
-    plot.title = element_text(size = 11, face = "bold"),
-    plot.caption = element_text(size = 8, hjust = 0, color = "#666666")
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 10, hjust = 0.5, color = "grey50"),
+    plot.caption = element_text(size = 8, hjust = 0, color = "grey50")
   )
 
-# Save reversibility plots individually (avoids patchwork facet alignment errors)
-pdf("q4_reversibility_heatmap.pdf", width = 7, height = 12, family = "Helvetica")
-print(p_rev_heatmap)
-dev.off()
-
-# Combine the non-faceted plots safely
-fig_rev_summary <- (p_rev_box / p_expr_profile) +
-  plot_annotation(
-    title = "Reversibility of Activin-induced expression by SB50",
-    subtitle = "Experiment 2 – Candidate genes vs. direct Nodal targets",
-    theme = theme(
-      plot.title = element_text(size = 14, face = "bold", hjust = 0.5,
-                                family = "Helvetica"),
-      plot.subtitle = element_text(size = 11, hjust = 0.5, color = "#666666",
-                                   family = "Helvetica")
-    )
-  )
-
-pdf("q4_reversibility_summary.pdf", width = 8, height = 10, family = "Helvetica")
-print(fig_rev_summary)
-dev.off()
-cat("\nSaved: q4_reversibility_heatmap.pdf, q4_reversibility_summary.pdf\n")
+ggsave("q4_reversibility_profile.pdf", p_expr_profile, width = 8, height = 6)
+cat("\nSaved: q4_reversibility_profile.pdf\n")
 
 # ============================================================================
-# COMBINED OVERVIEW FIGURE: ChIP-seq + Dynamics + Reversibility
+# PART 4: Integrated Overview (split by gene group)
 # ============================================================================
 
 cat("\n")
 cat(strrep("=", 70), "\n")
-cat("Creating combined overview figure\n")
+cat("PART 4: Integrated Overview\n")
 cat(strrep("=", 70), "\n\n")
 
-# Summary dot plot: combine ChIP-seq binding, peak time, and reversibility
+# Combine peak timing, reversibility at 60 min, and ChIP-seq info
 combined_summary <- peak_times %>%
   left_join(
     rev_all %>% dplyr::select(gene, gene_group, activin_effect, rev_60),
@@ -882,128 +595,121 @@ combined_summary <- peak_times %>%
   left_join(
     chipseq_results %>%
       dplyr::select(gene, chip_factor, n_peaks, has_foxh1_motif) %>%
-      pivot_wider(
-        id_cols = gene,
-        names_from = chip_factor,
-        values_from = c(n_peaks, has_foxh1_motif),
-        names_sep = "_"
-      ),
+      pivot_wider(id_cols = gene, names_from = chip_factor,
+                  values_from = c(n_peaks, has_foxh1_motif), names_sep = "_"),
     by = "gene"
   ) %>%
   mutate(
-    any_chipseq = (n_peaks_Smad2 > 0) | (n_peaks_EomesA > 0),
-    both_chipseq = (n_peaks_Smad2 > 0) & (n_peaks_EomesA > 0),
     chip_label = case_when(
       n_peaks_Smad2 > 0 & n_peaks_EomesA > 0 ~ "Smad2 + EomesA",
       n_peaks_Smad2 > 0 ~ "Smad2 only",
       n_peaks_EomesA > 0 ~ "EomesA only",
       TRUE ~ "No binding"
-    )
+    ),
+    # Clamp reversibility to [0, 1] for display
+    rev_60_clamped = pmin(pmax(rev_60, 0), 1)
   )
+
+write_csv(combined_summary, "q4_combined_summary.csv")
 
 chip_fill_colors <- c("Smad2 + EomesA" = "#7570B3", "Smad2 only" = "#D95F02",
                        "EomesA only" = "#1B9E77", "No binding" = "#E0E0E0")
 
-p_overview <- ggplot(combined_summary,
-       aes(x = peak_time, y = rev_60, size = abs(peak_log2fc))) +
-  geom_point(aes(fill = chip_label, shape = gene_group),
-             alpha = 0.8, stroke = 0.5, color = "black") +
-  geom_text_repel(
-    aes(label = gene),
-    size = 2.8, fontface = "italic", color = "#333333",
-    max.overlaps = 25, seed = 42, box.padding = 0.4,
-    min.segment.length = 0.2
-  ) +
-  geom_hline(yintercept = c(0, 1), linetype = c("dashed", "solid"),
-             color = c("#B2182B", "#2166AC"), linewidth = 0.3) +
-  scale_shape_manual(values = c("Candidate" = 21, "Nodal score" = 24), name = "Gene group") +
-  scale_fill_manual(values = chip_fill_colors, name = "ChIP-seq binding") +
-  scale_size_continuous(range = c(2, 8), name = "|Peak log₂FC|") +
-  scale_x_continuous(breaks = timepoints) +
-  coord_cartesian(ylim = c(-0.5, 1.8)) +
-  labs(
-    x = "Time of peak response in Exp1 (min)",
-    y = "Reversibility at SB50 60 min",
-    title = "Integrated view: ChIP-seq binding, response timing, and reversibility",
-    subtitle = "Direct Nodal targets tend to respond earlier and are more reversible",
-    caption = paste0(
-      "Reversibility = 1: fully blocked by SB50 | = 0: not blocked\n",
-      "ChIP-seq data from Nelson et al. (2014) BMC Genomics"
+# --- FIGURE 4: Two separate overview panels ---
+# Following q3 styling conventions:
+#   theme_minimal(base_size = 10), ggsave(), consistent text sizing
+
+make_overview_panel <- function(data, title_text, title_color) {
+  ggplot(data %>% filter(!is.na(rev_60_clamped)),
+         aes(x = peak_time, y = rev_60_clamped, size = abs(peak_log2fc))) +
+    geom_point(aes(fill = chip_label), shape = 21,
+               alpha = 0.85, stroke = 0.5, color = "black") +
+    geom_text_repel(
+      aes(label = gene),
+      size = 3.2, fontface = "italic", color = "#333333",
+      max.overlaps = 25, seed = 42, box.padding = 0.5,
+      min.segment.length = 0.2
+    ) +
+    geom_hline(yintercept = 0.5, linetype = "dashed", color = "grey50", linewidth = 0.3) +
+    scale_fill_manual(values = chip_fill_colors, name = "ChIP-seq binding",
+                      drop = FALSE) +
+    scale_size_continuous(range = c(2, 8), name = "|Peak log\u2082FC|") +
+    scale_x_continuous(breaks = timepoints) +
+    scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.25),
+                       labels = c("0\n(not reversed)", "0.25", "0.5", "0.75", "1\n(fully reversed)")) +
+    labs(x = "Time of peak response (min)", y = "Reversibility (SB50 @ 60 min)",
+         title = title_text) +
+    guides(fill = guide_legend(override.aes = list(size = 4))) +
+    coord_cartesian(ylim = c(0, 1)) +
+    theme_minimal(base_size = 10) +
+    theme(
+      panel.grid.minor = element_blank(),
+      legend.position = "right",
+      legend.text = element_text(size = 9),
+      plot.title = element_text(size = 12, face = "bold", hjust = 0.5,
+                                color = title_color)
     )
-  ) +
-  guides(
-    fill = guide_legend(override.aes = list(shape = 21, size = 4)),
-    shape = guide_legend(override.aes = list(size = 4))
-  ) +
-  theme_bw(base_size = 11, base_family = "Helvetica") +
-  theme(
-    panel.grid.minor = element_blank(),
-    legend.position = "right",
-    legend.text = element_text(size = 9),
-    plot.title = element_text(size = 13, face = "bold"),
-    plot.subtitle = element_text(size = 10, color = "#666666"),
-    plot.caption = element_text(size = 8, hjust = 0, color = "#666666")
+}
+
+p_overview_cand <- make_overview_panel(
+  combined_summary %>% filter(gene_group == "Candidate"),
+  "Candidate genes", "#E66101"
+)
+p_overview_nodal <- make_overview_panel(
+  combined_summary %>% filter(gene_group == "Nodal score"),
+  "Nodal score genes (direct targets)", "#5E3C99"
+)
+
+fig_overview <- p_overview_cand / p_overview_nodal +
+  plot_annotation(
+    title = "Integrated view: response timing vs reversibility",
+    subtitle = "Bubble size = peak fold-change magnitude | Fill = ChIP-seq binding evidence",
+    caption = "Y = 1: fully reversed by SB50 | Y = 0: not reversed | Data: Nelson et al. (2014) BMC Genomics",
+    theme = theme(
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 10, hjust = 0.5, color = "grey50"),
+      plot.caption = element_text(size = 8, hjust = 0, color = "grey50")
+    )
   )
 
-pdf("q4_integrated_overview.pdf", width = 12, height = 8, family = "Helvetica")
-print(p_overview)
-dev.off()
-cat("\nSaved: q4_integrated_overview.pdf\n")
-
-write_csv(combined_summary, "q4_combined_summary.csv")
+ggsave("q4_integrated_overview.pdf", fig_overview, width = 10, height = 14)
+cat("Saved: q4_integrated_overview.pdf\n")
 
 # ============================================================================
-# PART 4: Candidate Gene Validation & Alternative Proposals
+# PART 5: Candidate Gene Validation & Alternatives
 # ============================================================================
-#
-# Validate the 18 candidate genes against actual DE results and
-# ChIP-seq binding data. Flag weak candidates and propose alternatives.
 
 cat("\n")
 cat(strrep("=", 70), "\n")
-cat("PART 4: Candidate Gene Validation\n")
+cat("PART 5: Candidate Gene Validation\n")
 cat(strrep("=", 70), "\n\n")
 
-# Load DE results from the re-analysis
 de_exp1 <- read_csv("q1_exp1_0vs15_activin_240min.csv", show_col_types = FALSE)
 de_exp2 <- read_csv("q3_Activin_vs_Baseline.csv", show_col_types = FALSE)
 
-# Check each candidate gene in the DE tables
-validate_candidate <- function(gene_name, de1, de2, chip_results) {
-  row1 <- de1 %>% filter(gene == gene_name)
-  row2 <- de2 %>% filter(gene == gene_name)
+validate_candidate <- function(gene_name, de1, de2, chip_res) {
+  r1 <- de1 %>% filter(gene == gene_name)
+  r2 <- de2 %>% filter(gene == gene_name)
 
-  # ChIP-seq binding
-  chip <- chip_results %>%
-    filter(gene == gene_name) %>%
+  chip <- chip_res %>% filter(gene == gene_name) %>%
     group_by(gene) %>%
-    summarise(
-      smad2_peaks = sum(n_peaks[chip_factor == "Smad2"]),
-      eomesa_peaks = sum(n_peaks[chip_factor == "EomesA"]),
-      has_foxh1 = any(has_foxh1_motif, na.rm = TRUE),
-      .groups = "drop"
-    )
+    summarise(sm = sum(n_peaks[chip_factor == "Smad2"]),
+              eo = sum(n_peaks[chip_factor == "EomesA"]),
+              fx = any(has_foxh1_motif, na.rm = TRUE), .groups = "drop")
 
   tibble(
     gene = gene_name,
     in_count_matrix = gene_name %in% tolower(rownames(counts_filtered)),
-    # Exp1 (15 vs 0 ng/ml)
-    exp1_log2fc = ifelse(nrow(row1) > 0, row1$log2FoldChange[1], NA_real_),
-    exp1_padj = ifelse(nrow(row1) > 0, row1$padj[1], NA_real_),
-    exp1_sig = ifelse(nrow(row1) > 0,
-                      row1$padj[1] < 0.05 & abs(row1$log2FoldChange[1]) >= 1.0, FALSE),
-    # Exp2 (Activin vs Baseline)
-    exp2_log2fc = ifelse(nrow(row2) > 0, row2$log2FoldChange[1], NA_real_),
-    exp2_padj = ifelse(nrow(row2) > 0, row2$padj[1], NA_real_),
-    exp2_sig = ifelse(nrow(row2) > 0,
-                      row2$padj[1] < 0.05 & abs(row2$log2FoldChange[1]) >= 1.0, FALSE),
-    # ChIP-seq
-    smad2_bound = ifelse(nrow(chip) > 0, chip$smad2_peaks[1] > 0, FALSE),
-    eomesa_bound = ifelse(nrow(chip) > 0, chip$eomesa_peaks[1] > 0, FALSE),
-    foxh1_motif = ifelse(nrow(chip) > 0, chip$has_foxh1[1], FALSE),
-    # Verdict
-    de_consistent = ifelse(!is.na(exp1_sig) & !is.na(exp2_sig),
-                           exp1_sig & exp2_sig, FALSE),
+    exp1_log2fc = if (nrow(r1) > 0) r1$log2FoldChange[1] else NA_real_,
+    exp1_padj   = if (nrow(r1) > 0) r1$padj[1] else NA_real_,
+    exp1_sig = if (nrow(r1) > 0) r1$padj[1] < 0.05 & abs(r1$log2FoldChange[1]) >= 1.0 else FALSE,
+    exp2_log2fc = if (nrow(r2) > 0) r2$log2FoldChange[1] else NA_real_,
+    exp2_padj   = if (nrow(r2) > 0) r2$padj[1] else NA_real_,
+    exp2_sig = if (nrow(r2) > 0) r2$padj[1] < 0.05 & abs(r2$log2FoldChange[1]) >= 1.0 else FALSE,
+    smad2_bound  = if (nrow(chip) > 0) chip$sm[1] > 0 else FALSE,
+    eomesa_bound = if (nrow(chip) > 0) chip$eo[1] > 0 else FALSE,
+    foxh1_motif  = if (nrow(chip) > 0) chip$fx[1] else FALSE,
+    de_consistent = ifelse(!is.na(exp1_sig) & !is.na(exp2_sig), exp1_sig & exp2_sig, FALSE),
     has_chipseq = smad2_bound | eomesa_bound,
     quality = case_when(
       !in_count_matrix ~ "NOT IN DATA",
@@ -1017,65 +723,43 @@ validate_candidate <- function(gene_name, de1, de2, chip_results) {
 
 validation <- map_dfr(candidate_genes, ~ validate_candidate(.x, de_exp1, de_exp2, chipseq_results))
 
-cat("=== Candidate Gene Validation ===\n\n")
 cat("Quality tiers:\n")
-cat("  STRONG   : Significantly DE in both experiments + ChIP-seq binding\n")
-cat("  DE only  : Significantly DE but no ChIP-seq peaks nearby\n")
-cat("  ChIP only: ChIP-seq peaks but not consistently DE (|log2FC| < 1 or padj > 0.05)\n")
-cat("  WEAK     : Neither significant DE nor ChIP-seq binding\n")
-cat("  NOT IN DATA: Gene absent from the count matrix\n\n")
+cat("  STRONG    = Significantly DE in both experiments + ChIP-seq binding\n")
+cat("  DE only   = Significantly DE but no ChIP-seq peaks\n")
+cat("  ChIP only = ChIP-seq peaks but not consistently DE\n")
+cat("  WEAK      = Neither significant DE nor ChIP-seq binding\n")
+cat("  NOT IN DATA = Absent from count matrix\n\n")
 
-val_print <- validation %>%
-  dplyr::select(gene, quality, exp1_log2fc, exp1_padj, exp2_log2fc, exp2_padj,
-                smad2_bound, eomesa_bound, foxh1_motif) %>%
-  mutate(across(c(exp1_log2fc, exp2_log2fc), ~ round(., 2)),
-         across(c(exp1_padj, exp2_padj), ~ formatC(., format = "e", digits = 1)))
-print(as.data.frame(val_print), row.names = FALSE)
+print(as.data.frame(validation %>%
+  dplyr::select(gene, quality, exp1_log2fc, exp1_padj, smad2_bound, eomesa_bound) %>%
+  mutate(exp1_log2fc = round(exp1_log2fc, 2),
+         exp1_padj = formatC(exp1_padj, format = "e", digits = 1))),
+  row.names = FALSE)
 
-# Summary counts
-cat("\n--- Summary ---\n")
+cat("\n")
 for (q in c("STRONG", "DE only", "ChIP only", "WEAK", "NOT IN DATA")) {
-  genes_q <- validation %>% filter(quality == q) %>% pull(gene)
-  if (length(genes_q) > 0) {
-    cat(sprintf("  %s (%d): %s\n", q, length(genes_q), paste(genes_q, collapse = ", ")))
-  }
+  g <- validation %>% filter(quality == q) %>% pull(gene)
+  if (length(g) > 0) cat(sprintf("  %s (%d): %s\n", q, length(g), paste(g, collapse = ", ")))
 }
 
 write_csv(validation, "q4_candidate_validation.csv")
 
-# ============================================================================
-# Propose alternative candidate genes
-# ============================================================================
-#
-# Identify strong Activin-responsive genes that are NOT in the current
-# candidate or Nodal score lists, especially those with ChIP-seq evidence.
-
-cat("\n=== Proposed Alternative Candidates ===\n\n")
-
-# Genes significantly DE in Exp1 (15 vs 0), excluding existing lists
+# Propose alternatives: DE in both experiments AND ChIP-seq binding
 all_known <- unique(c(candidate_genes, nodal_genes))
 
 alt_candidates <- de_exp1 %>%
-  filter(padj < 0.05, abs(log2FoldChange) >= 1.0) %>%
-  filter(!gene %in% all_known) %>%
-  filter(!grepl("^LOC|^si:", gene)) %>%  # exclude unnamed loci
+  filter(padj < 0.05, abs(log2FoldChange) >= 1.0, !gene %in% all_known,
+         !grepl("^LOC|^si:", gene)) %>%
   arrange(padj) %>%
   head(100) %>%
-  mutate(
-    in_exp2_de = gene %in% (de_exp2 %>% filter(padj < 0.05, abs(log2FoldChange) >= 1.0) %>% pull(gene))
-  ) %>%
-  filter(in_exp2_de)  # must be DE in both experiments
+  filter(gene %in% (de_exp2 %>% filter(padj < 0.05, abs(log2FoldChange) >= 1.0) %>% pull(gene)))
 
-# Cross-reference with ChIP-seq
 alt_chip <- map_dfr(alt_candidates$gene, function(g) {
-  smad2_hits <- chipseq_results %>% filter(gene == g, chip_factor == "Smad2", n_peaks > 0)
-  eomesa_hits <- chipseq_results %>% filter(gene == g, chip_factor == "EomesA", n_peaks > 0)
-  foxh1 <- chipseq_results %>% filter(gene == g, has_foxh1_motif == TRUE)
   tibble(
     gene = g,
-    smad2_peaks = nrow(smad2_hits),
-    eomesa_peaks = nrow(eomesa_hits),
-    has_foxh1 = nrow(foxh1) > 0
+    smad2_peaks = sum(chipseq_results$n_peaks[chipseq_results$gene == g & chipseq_results$chip_factor == "Smad2"]),
+    eomesa_peaks = sum(chipseq_results$n_peaks[chipseq_results$gene == g & chipseq_results$chip_factor == "EomesA"]),
+    has_foxh1 = any(chipseq_results$has_foxh1_motif[chipseq_results$gene == g], na.rm = TRUE)
   )
 })
 
@@ -1088,64 +772,55 @@ alt_full <- alt_candidates %>%
   ) %>%
   arrange(desc(score))
 
-cat("Top alternative genes (DE in both experiments, ranked by combined score):\n")
-cat("  Score = -log10(padj) + 2*|log2FC| + 10*(ChIP-seq) + 5*(Foxh1)\n\n")
-
-alt_print <- alt_full %>%
-  head(20) %>%
+cat("\n=== Top 20 Alternative Candidates ===\n")
+cat("Score = -log10(padj) + 2*|log2FC| + 10*(ChIP) + 5*(Foxh1)\n\n")
+print(as.data.frame(alt_full %>% head(20) %>%
   mutate(log2FC = round(log2FoldChange, 2),
-         padj_str = formatC(padj, format = "e", digits = 1)) %>%
-  dplyr::select(gene, log2FC, padj_str, baseMean = baseMean,
-                smad2_peaks, eomesa_peaks, has_foxh1, score)
-print(as.data.frame(alt_print %>% mutate(baseMean = round(baseMean, 0),
-                                          score = round(score, 1))),
-      row.names = FALSE)
+         padj_str = formatC(padj, format = "e", digits = 1),
+         baseMean = round(baseMean, 0), score = round(score, 1)) %>%
+  dplyr::select(gene, log2FC, padj_str, baseMean, smad2_peaks, eomesa_peaks, has_foxh1, score)),
+  row.names = FALSE)
 
 write_csv(alt_full, "q4_alternative_candidates.csv")
 
-# ============================================================================
-# PART 4 FIGURE: Candidate validation dot plot
-# ============================================================================
+# --- FIGURE 5: Candidate validation volcano ---
 
 val_plot_data <- validation %>%
   filter(in_count_matrix) %>%
   mutate(
     gene = factor(gene, levels = gene[order(quality, exp1_padj)]),
     quality = factor(quality, levels = c("STRONG", "DE only", "ChIP only", "WEAK"))
-  )
+  ) %>%
+  filter(!is.na(quality))
 
 quality_colors <- c("STRONG" = "#2166AC", "DE only" = "#E66101",
-                     "ChIP only" = "#B2182B", "WEAK" = "#CCCCCC")
+                     "ChIP only" = "#B2182B", "WEAK" = "grey75")
 
 p_validation <- ggplot(val_plot_data,
        aes(x = exp1_log2fc, y = -log10(exp1_padj), fill = quality)) +
   geom_point(shape = 21, size = 4, stroke = 0.5, color = "black", alpha = 0.85) +
-  geom_text_repel(
-    aes(label = gene), size = 3, fontface = "italic", color = "#333333",
-    max.overlaps = 20, seed = 42, box.padding = 0.4
-  ) +
-  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "#999999", linewidth = 0.3) +
-  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "#999999", linewidth = 0.3) +
+  geom_text_repel(aes(label = gene), size = 3, fontface = "italic", color = "#333333",
+                  max.overlaps = 20, seed = 42, box.padding = 0.4) +
+  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "grey50", linewidth = 0.3) +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "grey50", linewidth = 0.3) +
   scale_fill_manual(values = quality_colors, name = "Validation tier") +
   labs(
-    x = expression(log[2]~"FC (Exp1: 15 vs 0 ng/ml)"),
-    y = expression(-log[10]~"(adj. p-value)"),
+    x = "log2FC (Exp1: 15 vs 0 ng/ml Activin @ 240 min)",
+    y = "-log10(adj. p-value)",
     title = "Candidate gene validation",
-    subtitle = "DE significance vs. ChIP-seq binding evidence",
-    caption = "Dashed lines: |log₂FC| = 1 and padj = 0.05 thresholds"
+    subtitle = "DE significance vs ChIP-seq binding evidence",
+    caption = "Dashed lines: |log\u2082FC| = 1 and padj = 0.05"
   ) +
-  theme_bw(base_size = 11, base_family = "Helvetica") +
+  theme_minimal(base_size = 10) +
   theme(
     panel.grid.minor = element_blank(),
     legend.position = "right",
-    plot.title = element_text(size = 13, face = "bold"),
-    plot.subtitle = element_text(size = 10, color = "#666666"),
-    plot.caption = element_text(size = 8, hjust = 0, color = "#666666")
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 10, hjust = 0.5, color = "grey50"),
+    plot.caption = element_text(size = 8, hjust = 0, color = "grey50")
   )
 
-pdf("q4_candidate_validation.pdf", width = 9, height = 7, family = "Helvetica")
-print(p_validation)
-dev.off()
+ggsave("q4_candidate_validation.pdf", p_validation, width = 9, height = 7)
 cat("\nSaved: q4_candidate_validation.pdf\n")
 
 # ============================================================================
@@ -1157,57 +832,28 @@ cat(strrep("=", 70), "\n")
 cat("SUMMARY\n")
 cat(strrep("=", 70), "\n\n")
 
-cat("ChIP-seq binding among candidate genes:\n")
-cat(sprintf("  Smad2 peaks: %d / %d genes have nearby peaks\n",
-            sum(candidate_chip_summary$Smad2_bound), nrow(candidate_chip_summary)))
-cat(sprintf("  EomesA peaks: %d / %d genes have nearby peaks\n",
-            sum(candidate_chip_summary$EomesA_bound), nrow(candidate_chip_summary)))
-cat(sprintf("  Foxh1 motif at Smad2 peaks: %d\n",
-            sum(candidate_chip_summary$Foxh1_at_Smad2, na.rm = TRUE)))
-cat(sprintf("  Foxh1 motif at EomesA peaks: %d\n",
-            sum(candidate_chip_summary$Foxh1_at_EomesA, na.rm = TRUE)))
+cat("ChIP-seq binding (candidates):\n")
+cat(sprintf("  Smad2 peaks: %d / %d | EomesA peaks: %d / %d\n",
+    sum(candidate_chip_summary$Smad2_bound), nrow(candidate_chip_summary),
+    sum(candidate_chip_summary$EomesA_bound), nrow(candidate_chip_summary)))
 
-cat("\nChIP-seq binding among Nodal score genes:\n")
-cat(sprintf("  Smad2 peaks: %d / %d genes have nearby peaks\n",
-            sum(nodal_chip_summary$Smad2_bound), nrow(nodal_chip_summary)))
-cat(sprintf("  EomesA peaks: %d / %d genes have nearby peaks\n",
-            sum(nodal_chip_summary$EomesA_bound), nrow(nodal_chip_summary)))
+cat("\nChIP-seq binding (Nodal score):\n")
+cat(sprintf("  Smad2 peaks: %d / %d | EomesA peaks: %d / %d\n",
+    sum(nodal_chip_summary$Smad2_bound), nrow(nodal_chip_summary),
+    sum(nodal_chip_summary$EomesA_bound), nrow(nodal_chip_summary)))
 
-cat("\nTemporal dynamics:\n")
-cat(sprintf("  Candidates: median peak at %d min\n",
-            median(peak_cand$peak_time)))
-cat(sprintf("  Nodal score: median peak at %d min\n",
-            median(peak_nodal$peak_time)))
-
-rev_60_cand <- rev_candidates$rev_60[!is.na(rev_candidates$rev_60)]
-rev_60_nod <- rev_nodal$rev_60[!is.na(rev_nodal$rev_60)]
-cat("\nReversibility (SB50 @ 60 min):\n")
-cat(sprintf("  Candidates: median = %.2f (range: %.2f – %.2f)\n",
-            median(rev_60_cand), min(rev_60_cand), max(rev_60_cand)))
-cat(sprintf("  Nodal score: median = %.2f (range: %.2f – %.2f)\n",
-            median(rev_60_nod), min(rev_60_nod), max(rev_60_nod)))
-
-cat("\nCandidate validation:\n")
 strong <- validation %>% filter(quality == "STRONG") %>% pull(gene)
-weak <- validation %>% filter(quality %in% c("WEAK", "NOT IN DATA")) %>% pull(gene)
-cat(sprintf("  STRONG candidates (DE + ChIP-seq): %d – %s\n",
-            length(strong), paste(strong, collapse = ", ")))
-cat(sprintf("  Weak/missing candidates: %d – %s\n",
-            length(weak), paste(weak, collapse = ", ")))
+weak   <- validation %>% filter(quality %in% c("WEAK", "NOT IN DATA")) %>% pull(gene)
+cat(sprintf("\nValid candidates (STRONG): %s\n", paste(strong, collapse = ", ")))
+cat(sprintf("Weak/missing candidates: %s\n", paste(weak, collapse = ", ")))
 
 cat("\n=== Output Files ===\n")
-cat("  q4_chipseq_candidates.csv        – ChIP-seq binding for candidate genes\n")
-cat("  q4_chipseq_nodal.csv             – ChIP-seq binding for Nodal score genes\n")
-cat("  q4_peak_expression_times.csv     – Peak expression timing per gene\n")
-cat("  q4_temporal_clusters.csv         – Gene clustering by temporal behaviour\n")
-cat("  q4_reversibility_scores.csv      – Reversibility scores per gene\n")
-cat("  q4_combined_summary.csv          – Integrated summary table\n")
-cat("  q4_candidate_validation.csv      – Candidate gene validation results\n")
-cat("  q4_alternative_candidates.csv    – Proposed alternative candidates\n")
-cat("  q4_chipseq_binding_heatmap.pdf   – ChIP-seq binding heatmap\n")
-cat("  q4_temporal_clusters.pdf         – Temporal behaviour cluster plot\n")
-cat("  q4_temporal_dynamics.pdf         – Summary temporal dynamics figure\n")
-cat("  q4_reversibility_heatmap.pdf     – Reversibility per-gene heatmap\n")
-cat("  q4_reversibility_summary.pdf     – Reversibility box plot + expression\n")
-cat("  q4_integrated_overview.pdf       – Combined overview figure\n")
-cat("  q4_candidate_validation.pdf      – Candidate validation volcano\n")
+cat("  CSV:  q4_chipseq_candidates.csv, q4_chipseq_nodal.csv\n")
+cat("        q4_peak_expression_times.csv, q4_temporal_clusters.csv\n")
+cat("        q4_reversibility_scores.csv, q4_combined_summary.csv\n")
+cat("        q4_candidate_validation.csv, q4_alternative_candidates.csv\n")
+cat("  PDF:  q4_chipseq_binding_heatmap.pdf  (Fig 1 – ChIP-seq heatmap)\n")
+cat("        q4_temporal_clusters.pdf        (Fig 2 – 2×2 behaviour clusters)\n")
+cat("        q4_reversibility_profile.pdf    (Fig 3 – expression shift profile)\n")
+cat("        q4_integrated_overview.pdf      (Fig 4 – timing vs reversibility)\n")
+cat("        q4_candidate_validation.pdf     (Fig 5 – validation volcano)\n")
