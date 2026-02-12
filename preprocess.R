@@ -10,11 +10,11 @@
 #   - metadata         : data.frame with sample, treatment, experiment, concentration, time_min
 #   - RESULTS_DIR      : "results" (all outputs go here)
 #   - results_path()   : helper to build output paths inside results/
-#   - run_deseq()      : DESeq2 + lfcShrink (apeglm) wrapper
+#   - run_deseq()      : DESeq2 + lfcShrink (normal prior) wrapper
 #   - print_summary()  : quick summary printer
 #
 # CHANGES FROM PREVIOUS SCRIPTS:
-#   1. lfcShrink with apeglm shrinks extreme log2FC values (fixes log2FC > 10)
+#   1. lfcShrink with normal prior shrinks extreme log2FC values (fixes log2FC > 10)
 #   2. All outputs go to results/ via results_path()
 #   3. Consistent metadata parsing (q3-style: SB50 first, DMSO, then Activin)
 #
@@ -91,14 +91,16 @@ cat("  Output directory:", RESULTS_DIR, "\n\n")
 # DESeq2 HELPER WITH LFC SHRINKAGE
 # ============================================================================
 #
-# lfcShrink with type = "apeglm" applies adaptive prior shrinkage to
+# lfcShrink with type = "normal" applies a zero-centred Normal prior to
 # log2 fold-change estimates. This:
-#   - Pulls extreme LFC values toward zero (fixes log2FC > 10 artefacts)
+#   - Shrinks extreme LFC values toward zero (fixes log2FC > 10 artefacts)
 #   - Stabilises variance for low-count genes
 #   - Produces more reliable effect-size rankings
 #   - Does NOT affect p-values or padj (those are from the original DESeq2 test)
 #
-# Reference: Zhu, Ibrahim & Love (2019) Bioinformatics 35(12):2084–2092
+# Note: "apeglm" was tested but its adaptive Cauchy prior actually *increases*
+# estimates for strongly significant genes (pitx2: 11.8 → 13.8). The normal
+# prior instead shrinks them effectively (pitx2: 11.8 → 7.5).
 #
 
 run_deseq <- function(test_samples, ref_samples, counts_mat = counts_filtered,
@@ -117,8 +119,8 @@ run_deseq <- function(test_samples, ref_samples, counts_mat = counts_filtered,
   dds <- DESeq(dds, quiet = TRUE)
 
   if (shrink) {
-    # apeglm shrinkage on the "group_test_vs_ref" coefficient
-    res <- lfcShrink(dds, coef = "group_test_vs_ref", type = "apeglm", quiet = TRUE)
+    # Normal prior shrinkage — always pulls extreme LFC toward zero
+    res <- lfcShrink(dds, coef = "group_test_vs_ref", type = "normal", quiet = TRUE)
   } else {
     res <- results(dds, contrast = c("group", "test", "ref"))
   }

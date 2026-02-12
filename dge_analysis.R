@@ -45,7 +45,7 @@ if(nrow(exp1_60min) >= 2) {
   )
   dds_exp1$concentration <- relevel(factor(dds_exp1$concentration), ref = "0ngml")
   dds_exp1 <- DESeq(dds_exp1)
-  res_exp1 <- lfcShrink(dds_exp1, coef = "concentration_15ngml_vs_0ngml", type = "apeglm", quiet = TRUE)
+  res_exp1 <- lfcShrink(dds_exp1, coef = "concentration_15ngml_vs_0ngml", type = "normal", quiet = TRUE)
   res_exp1_df <- as.data.frame(res_exp1) %>%
     rownames_to_column("gene") %>%
     filter(!is.na(padj)) %>%
@@ -71,7 +71,7 @@ if(nrow(exp2_dmso) >= 2) {
   )
   dds_exp2$concentration <- relevel(factor(dds_exp2$concentration), ref = "0ngml_DMSO")
   dds_exp2 <- DESeq(dds_exp2)
-  res_exp2 <- lfcShrink(dds_exp2, coef = "concentration_15ngml_DMSO_vs_0ngml_DMSO", type = "apeglm", quiet = TRUE)
+  res_exp2 <- lfcShrink(dds_exp2, coef = "concentration_15ngml_DMSO_vs_0ngml_DMSO", type = "normal", quiet = TRUE)
   res_exp2_df <- as.data.frame(res_exp2) %>%
     rownames_to_column("gene") %>%
     filter(!is.na(padj)) %>%
@@ -233,7 +233,7 @@ run_deseq_comparison <- function(test_samples, ref_samples, counts_mat, comparis
     design = ~ group
   )
   dds <- DESeq(dds, quiet = TRUE)
-  res <- lfcShrink(dds, coef = "group_test_vs_ref", type = "apeglm", quiet = TRUE)
+  res <- lfcShrink(dds, coef = "group_test_vs_ref", type = "normal", quiet = TRUE)
   res_df <- as.data.frame(res) %>%
     rownames_to_column("gene") %>%
     filter(!is.na(padj)) %>%
