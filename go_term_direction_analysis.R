@@ -321,7 +321,7 @@ p <- ggplot(sig_counts, aes(x = condition, y = prop_plot)) +
     plot.margin = margin(t = 10, r = 15, b = 10, l = 10)
   )
 
-ggsave("exp2_go_genes_direction.pdf", p, width = 8, height = 8, device = cairo_pdf)
+ggsave("exp2_go_genes_direction.pdf", p, width = 8, height = 8, device = pdf)
 cat("\nSaved: exp2_go_genes_direction.pdf\n")
 
 # Also save a version showing the actual significant genes
