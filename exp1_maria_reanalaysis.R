@@ -57,14 +57,14 @@ group_means <- data.frame(nodal_zscore) %>%
 
 # Order columns: first by time, then by concentration within time
 unique_groups <- exp1_metadata %>%
-  select(group, time_min, concentration) %>%
+  dplyr::select(group, time_min, concentration) %>%
   filter(time_min %in% c(60,120,180,240)) %>%
   distinct() %>%
   mutate(
     conc_order = match(concentration, c("0ngml", "5ngml", "10ngml", "15ngml"))
   ) %>%
   arrange(time_min, conc_order) %>%
-  select(-conc_order)
+  dplyr::select(-conc_order)
 
 ordered_cols <- intersect(unique_groups$group, colnames(group_means))
 group_means_ordered <- group_means[, ordered_cols, drop = FALSE]
@@ -73,7 +73,7 @@ group_means_ordered <- group_means[, ordered_cols, drop = FALSE]
 annotation_col <- unique_groups %>%
   filter(group %in% ordered_cols) %>%
   ungroup() %>%
-  select(group, time_min, concentration)
+  dplyr::select(group, time_min, concentration)
 
 # Convert to data frame with row names
 annotation_col <- data.frame(
