@@ -2,75 +2,12 @@
 # For 3' QuantSeq data, use raw counts (salmon.merged.gene_counts.tsv) for DESeq2
 # as DESeq2 handles normalization internally
 
-library(DESeq2)
-library(readr)
-library(tidyverse)
-library(readxl)
+source("preprocess.R")
 library(pheatmap)
 library(RColorBrewer)
 
-# ============================================================================
-# 1. LOAD AND PREPARE DATA
-# ============================================================================
-
-# Load counts - use raw counts for DESeq2
-counts_raw <- read.table("salmon.merged.gene_counts.tsv", header = TRUE, row.names = 1)
-counts_raw <- counts_raw[, -1]  # Remove gene_name column, keep gene_id as rownames
-
-# Round to integers (DESeq2 requirement)
-counts_int <- round(counts_raw)
-
-# Load sample metadata
-samples <- read_csv("samples.csv")
-
-# Parse sample information
-parse_sample_names <- function(sample_name) {
-  sub("^\\d{8}_R\\d+_", "", sample_name)
-}
-
-clean_treatments <- sapply(samples$sample_description, parse_sample_names, USE.NAMES = FALSE)
-
-# Create metadata dataframe
-metadata <- data.frame(
-  sample = paste0("S", samples$requests_sample_sample_id),
-  treatment = clean_treatments,
-  row.names = paste0("S", samples$requests_sample_sample_id)
-)
-
-# Define experiment groups based on treatment patterns
-# Experiment 1: Standard Activin time course (no DMSO, no SB50)
-# Experiment 2: DMSO/SB50 inhibitor experiment
-metadata$experiment <- ifelse(
-  grepl("DMSO|SB50", metadata$treatment),
-  "Exp2", "Exp1"
-)
-
-# Extract concentration
-metadata$concentration <- case_when(
-  grepl("^0ngmlActivin", metadata$treatment) ~ "0ngml",
-  grepl("^5ngmlActivin", metadata$treatment) ~ "5ngml",
-  grepl("^10ngmlActivin", metadata$treatment) ~ "10ngml",
-  grepl("^15ngmlActivin", metadata$treatment) ~ "15ngml",
-  grepl("^50uMSB50", metadata$treatment) ~ "SB50",
-  grepl("DMSO", metadata$treatment) & grepl("^0ngml", metadata$treatment) ~ "0ngml_DMSO",
-  grepl("DMSO", metadata$treatment) & grepl("^15ngml", metadata$treatment) ~ "15ngml_DMSO",
-  TRUE ~ NA_character_
-)
-
-# Extract time in minutes
-metadata$time_min <- as.numeric(str_extract(metadata$treatment, "\\d+(?=min$)"))
-
 # Create condition labels
 metadata$condition <- paste0(metadata$concentration, "_", metadata$time_min, "min")
-
-# Filter counts to match metadata samples
-common_samples <- intersect(colnames(counts_int), rownames(metadata))
-counts_int <- counts_int[, common_samples]
-metadata <- metadata[common_samples, ]
-
-# Filter low-expressed genes (keep genes with at least 10 counts in at least 3 samples)
-keep <- rowSums(counts_int >= 10) >= 3
-counts_filtered <- counts_int[keep, ]
 
 cat("Samples:", ncol(counts_filtered), "\n")
 cat("Genes after filtering:", nrow(counts_filtered), "\n")
@@ -108,7 +45,7 @@ if(nrow(exp1_60min) >= 2) {
   )
   dds_exp1$concentration <- relevel(factor(dds_exp1$concentration), ref = "0ngml")
   dds_exp1 <- DESeq(dds_exp1)
-  res_exp1 <- results(dds_exp1, contrast = c("concentration", "15ngml", "0ngml"))
+  res_exp1 <- lfcShrink(dds_exp1, coef = "concentration_15ngml_vs_0ngml", type = "apeglm", quiet = TRUE)
   res_exp1_df <- as.data.frame(res_exp1) %>%
     rownames_to_column("gene") %>%
     filter(!is.na(padj)) %>%
@@ -134,7 +71,7 @@ if(nrow(exp2_dmso) >= 2) {
   )
   dds_exp2$concentration <- relevel(factor(dds_exp2$concentration), ref = "0ngml_DMSO")
   dds_exp2 <- DESeq(dds_exp2)
-  res_exp2 <- results(dds_exp2, contrast = c("concentration", "15ngml_DMSO", "0ngml_DMSO"))
+  res_exp2 <- lfcShrink(dds_exp2, coef = "concentration_15ngml_DMSO_vs_0ngml_DMSO", type = "apeglm", quiet = TRUE)
   res_exp2_df <- as.data.frame(res_exp2) %>%
     rownames_to_column("gene") %>%
     filter(!is.na(padj)) %>%
@@ -159,8 +96,8 @@ if(exists("res_exp1_df") & exists("res_exp2_df")) {
   cat("  Shared DE genes:", length(overlap), "\n")
 
   # Save results
-  write_csv(res_exp1_df, "results_exp1_15vs0_activin.csv")
-  write_csv(res_exp2_df, "results_exp2_15vs0_dmso.csv")
+  write_csv(res_exp1_df, results_path("results_exp1_15vs0_activin.csv"))
+  write_csv(res_exp2_df, results_path("results_exp2_15vs0_dmso.csv"))
 }
 
 # ============================================================================
@@ -236,7 +173,7 @@ if(nrow(exp2_all) >= 2) {
       row.names = rownames(exp2_all)
     )
 
-    pdf("nodal_score_heatmap_exp2.pdf", width = 12, height = 10)
+    pdf(results_path("nodal_score_heatmap_exp2.pdf"), width = 12, height = 10)
     pheatmap(nodal_zscore,
              annotation_col = annotation_col,
              cluster_cols = TRUE,
@@ -246,10 +183,10 @@ if(nrow(exp2_all) >= 2) {
              main = "Nodal Score Genes - Experiment 2",
              fontsize_row = 6)
     dev.off()
-    cat("\nHeatmap saved: nodal_score_heatmap_exp2.pdf\n")
+    cat("\nHeatmap saved:", results_path("nodal_score_heatmap_exp2.pdf"), "\n")
   }
 
-  write_csv(exp2_all, "nodal_scores_exp2.csv")
+  write_csv(exp2_all, results_path("nodal_scores_exp2.csv"))
 }
 
 # ============================================================================
@@ -296,7 +233,7 @@ run_deseq_comparison <- function(test_samples, ref_samples, counts_mat, comparis
     design = ~ group
   )
   dds <- DESeq(dds, quiet = TRUE)
-  res <- results(dds, contrast = c("group", "test", "ref"))
+  res <- lfcShrink(dds, coef = "group_test_vs_ref", type = "apeglm", quiet = TRUE)
   res_df <- as.data.frame(res) %>%
     rownames_to_column("gene") %>%
     filter(!is.na(padj)) %>%
@@ -324,7 +261,7 @@ for(time_pt in sb50_times) {
   res1 <- run_deseq_comparison(sb50_time, dmso_15_4h, counts_filtered, comp_name)
   if(!is.null(res1)) {
     sb50_results[[comp_name]] <- res1
-    write_csv(res1, sprintf("results_%s.csv", comp_name))
+    write_csv(res1, results_path(sprintf("results_%s.csv", comp_name)))
   }
 
   # Comparison 2: SB50 vs 15ngml Activin at same timepoint (Exp1)
@@ -337,7 +274,7 @@ for(time_pt in sb50_times) {
     res2 <- run_deseq_comparison(sb50_time, exp1_15ngml_time, counts_filtered, comp_name2)
     if(!is.null(res2)) {
       sb50_results[[comp_name2]] <- res2
-      write_csv(res2, sprintf("results_%s.csv", comp_name2))
+      write_csv(res2, results_path(sprintf("results_%s.csv", comp_name2)))
     }
   } else {
     cat(sprintf("  No 15ngml Activin at %dmin in Exp1\n", time_pt))
@@ -363,7 +300,7 @@ vsd <- vst(dds_all, blind = TRUE)
 pca_data <- plotPCA(vsd, intgroup = c("experiment", "concentration"), returnData = TRUE)
 percentVar <- round(100 * attr(pca_data, "percentVar"))
 
-pdf("pca_all_samples.pdf", width = 10, height = 8)
+pdf(results_path("pca_all_samples.pdf"), width = 10, height = 8)
 ggplot(pca_data, aes(x = PC1, y = PC2, color = concentration, shape = experiment)) +
   geom_point(size = 3) +
   xlab(paste0("PC1: ", percentVar[1], "% variance")) +
@@ -372,7 +309,7 @@ ggplot(pca_data, aes(x = PC1, y = PC2, color = concentration, shape = experiment
   ggtitle("PCA - All Samples") +
   theme(legend.position = "right")
 dev.off()
-cat("Saved: pca_all_samples.pdf\n")
+cat("Saved:", results_path("pca_all_samples.pdf"), "\n")
 
 # Volcano plots for key comparisons
 create_volcano <- function(res_df, title, filename) {
@@ -397,15 +334,15 @@ create_volcano <- function(res_df, title, filename) {
 }
 
 if(exists("res_exp1_df")) {
-  create_volcano(res_exp1_df, "Exp1: 15ngml vs 0ngml Activin (60min)", "volcano_exp1.pdf")
+  create_volcano(res_exp1_df, "Exp1: 15ngml vs 0ngml Activin (60min)", results_path("volcano_exp1.pdf"))
 }
 if(exists("res_exp2_df")) {
-  create_volcano(res_exp2_df, "Exp2: 15ngml DMSO vs 0ngml DMSO", "volcano_exp2.pdf")
+  create_volcano(res_exp2_df, "Exp2: 15ngml DMSO vs 0ngml DMSO", results_path("volcano_exp2.pdf"))
 }
 
 # Nodal score barplot
 if(exists("exp2_all") && "nodal_score" %in% colnames(exp2_all)) {
-  pdf("nodal_score_barplot.pdf", width = 8, height = 6)
+  pdf(results_path("nodal_score_barplot.pdf"), width = 8, height = 6)
   nodal_plot_data <- exp2_all %>%
     group_by(concentration) %>%
     summarise(
@@ -423,13 +360,13 @@ if(exists("exp2_all") && "nodal_score" %in% colnames(exp2_all)) {
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
   print(p)
   dev.off()
-  cat("Saved: nodal_score_barplot.pdf\n")
+  cat("Saved:", results_path("nodal_score_barplot.pdf"), "\n")
 }
 
 cat("\n============================================================\n")
 cat("ANALYSIS COMPLETE\n")
 cat("============================================================\n")
-cat("\nOutput files generated:\n")
+cat("\nOutput files generated (all in results/):\n")
 cat("  - results_exp1_15vs0_activin.csv\n")
 cat("  - results_exp2_15vs0_dmso.csv\n")
 cat("  - nodal_scores_exp2.csv\n")

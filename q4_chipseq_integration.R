@@ -18,52 +18,12 @@
 #   5. Candidate validation volcano
 #
 
-library(DESeq2)
-library(readr)
-library(tidyverse)
-library(readxl)
-library(ggplot2)
-library(patchwork)
+source("preprocess.R")
 library(ggrepel)
 
 # ============================================================================
-# LOAD AND PREPARE DATA (identical to q3_sb50_comparison.R)
+# DATA LOADED FROM preprocess.R: counts_filtered, metadata, results_path()
 # ============================================================================
-
-counts_raw <- read.table("salmon.merged.gene_counts.tsv", header = TRUE, row.names = 1)
-counts_raw <- counts_raw[, -1]
-counts_int <- round(counts_raw)
-
-samples <- read_csv("samples.csv", show_col_types = FALSE)
-
-# Parse treatment names (identical to q3)
-metadata <- data.frame(
-  sample = paste0("S", samples$requests_sample_sample_id),
-  treatment = sub("^\\d{8}_R\\d+_", "", samples$sample_description),
-  row.names = paste0("S", samples$requests_sample_sample_id)
-)
-
-metadata$experiment <- ifelse(grepl("DMSO|SB50", metadata$treatment), "Exp2", "Exp1")
-
-# Classification: most specific patterns first (matches q3 exactly)
-metadata$concentration <- case_when(
-  grepl("^50uMSB50", metadata$treatment) ~ "SB50",
-  grepl("DMSO", metadata$treatment) & grepl("^15ngml", metadata$treatment) ~ "15ngml_DMSO",
-  grepl("DMSO", metadata$treatment) & grepl("^0ngml", metadata$treatment)  ~ "0ngml_DMSO",
-  grepl("^15ngmlActivin", metadata$treatment) ~ "15ngml",
-  grepl("^10ngmlActivin", metadata$treatment) ~ "10ngml",
-  grepl("^5ngmlActivin", metadata$treatment)  ~ "5ngml",
-  grepl("^0ngmlActivin", metadata$treatment) & !grepl("DMSO", metadata$treatment) ~ "0ngml",
-  TRUE ~ "other"
-)
-metadata$time_min <- as.numeric(str_extract(metadata$treatment, "\\d+(?=min$)"))
-
-common_samples <- intersect(colnames(counts_int), rownames(metadata))
-counts_int <- counts_int[, common_samples]
-metadata <- metadata[common_samples, ]
-
-keep <- rowSums(counts_int >= 10) >= 3
-counts_filtered <- counts_int[keep, ]
 
 cat("Total samples:", ncol(counts_filtered), "\n")
 cat("Genes after filtering:", nrow(counts_filtered), "\n")
@@ -168,8 +128,8 @@ print(as.data.frame(candidate_chip_summary), row.names = FALSE)
 cat("\n=== Nodal Score Genes ===\n")
 print(as.data.frame(nodal_chip_summary), row.names = FALSE)
 
-write_csv(candidate_chip_summary, "q4_chipseq_candidates.csv")
-write_csv(nodal_chip_summary, "q4_chipseq_nodal.csv")
+write_csv(candidate_chip_summary, results_path("q4_chipseq_candidates.csv"))
+write_csv(nodal_chip_summary, results_path("q4_chipseq_nodal.csv"))
 
 # --- FIGURE 1: ChIP-seq binding heatmap ---
 
@@ -220,8 +180,8 @@ p_chip <- ggplot(chip_plot_data, aes(x = feature, y = gene)) +
     plot.subtitle = element_text(size = 9, color = "grey50")
   )
 
-ggsave("q4_chipseq_binding_heatmap.pdf", p_chip, width = 6, height = 12)
-cat("\nSaved: q4_chipseq_binding_heatmap.pdf\n")
+ggsave(results_path("q4_chipseq_binding_heatmap.pdf"), p_chip, width = 6, height = 12)
+cat("\nSaved:", results_path("q4_chipseq_binding_heatmap.pdf"), "\n")
 
 # ============================================================================
 # PART 2: Temporal Dynamics & Behaviour Clustering
@@ -284,7 +244,7 @@ peak_times <- all_profiles %>%
     direction = ifelse(log2fc[which.max(abs(log2fc))] > 0, "Up", "Down"),
     .groups = "drop"
   )
-write_csv(peak_times, "q4_peak_expression_times.csv")
+write_csv(peak_times, results_path("q4_peak_expression_times.csv"))
 
 # --- Cluster genes into 4 categories by temporal profile ---
 #
@@ -336,7 +296,7 @@ for (cl in levels(gene_clusters$cluster)) {
               paste(cl_genes$gene, collapse = ", ")))
 }
 
-write_csv(gene_clusters, "q4_temporal_clusters.csv")
+write_csv(gene_clusters, results_path("q4_temporal_clusters.csv"))
 
 # --- FIGURE 2: 2×2 cluster facet plot with gene labels ---
 
@@ -399,8 +359,8 @@ p_clusters <- ggplot(cluster_plot_data, aes(x = time_min, y = log2fc)) +
     plot.subtitle = element_text(size = 10, hjust = 0.5, color = "grey50")
   )
 
-ggsave("q4_temporal_clusters.pdf", p_clusters, width = 10, height = 8)
-cat("\nSaved: q4_temporal_clusters.pdf\n")
+ggsave(results_path("q4_temporal_clusters.pdf"), p_clusters, width = 10, height = 8)
+cat("\nSaved:", results_path("q4_temporal_clusters.pdf"), "\n")
 
 # ============================================================================
 # PART 3: Reversibility (Exp2) – Expression Profile
@@ -509,7 +469,7 @@ print(as.data.frame(rev_nodal %>%
   mutate(across(where(is.numeric), ~ round(., 3))) %>%
   arrange(desc(abs(activin_effect)))), row.names = FALSE)
 
-write_csv(rev_all, "q4_reversibility_scores.csv")
+write_csv(rev_all, results_path("q4_reversibility_scores.csv"))
 
 # --- FIGURE 3: Mean expression profile across Exp2 conditions ---
 
@@ -574,8 +534,8 @@ p_expr_profile <- ggplot(group_expr_summary,
     plot.caption = element_text(size = 8, hjust = 0, color = "grey50")
   )
 
-ggsave("q4_reversibility_profile.pdf", p_expr_profile, width = 8, height = 6)
-cat("\nSaved: q4_reversibility_profile.pdf\n")
+ggsave(results_path("q4_reversibility_profile.pdf"), p_expr_profile, width = 8, height = 6)
+cat("\nSaved:", results_path("q4_reversibility_profile.pdf"), "\n")
 
 # ============================================================================
 # PART 4: Integrated Overview (split by gene group)
@@ -610,7 +570,7 @@ combined_summary <- peak_times %>%
     rev_60_clamped = pmin(pmax(rev_60, 0), 1)
   )
 
-write_csv(combined_summary, "q4_combined_summary.csv")
+write_csv(combined_summary, results_path("q4_combined_summary.csv"))
 
 chip_fill_colors <- c("Smad2 + EomesA" = "#7570B3", "Smad2 only" = "#D95F02",
                        "EomesA only" = "#1B9E77", "No binding" = "#E0E0E0")
@@ -672,8 +632,8 @@ fig_overview <- p_overview_cand / p_overview_nodal +
     )
   )
 
-ggsave("q4_integrated_overview.pdf", fig_overview, width = 10, height = 14)
-cat("Saved: q4_integrated_overview.pdf\n")
+ggsave(results_path("q4_integrated_overview.pdf"), fig_overview, width = 10, height = 14)
+cat("Saved:", results_path("q4_integrated_overview.pdf"), "\n")
 
 # ============================================================================
 # PART 5: Candidate Gene Validation & Alternatives
@@ -684,8 +644,8 @@ cat(strrep("=", 70), "\n")
 cat("PART 5: Candidate Gene Validation\n")
 cat(strrep("=", 70), "\n\n")
 
-de_exp1 <- read_csv("q1_exp1_0vs15_activin_240min.csv", show_col_types = FALSE)
-de_exp2 <- read_csv("q3_Activin_vs_Baseline.csv", show_col_types = FALSE)
+de_exp1 <- read_csv(results_path("q1_exp1_0vs15_activin_240min.csv"), show_col_types = FALSE)
+de_exp2 <- read_csv(results_path("q3_Activin_vs_Baseline.csv"), show_col_types = FALSE)
 
 validate_candidate <- function(gene_name, de1, de2, chip_res) {
   r1 <- de1 %>% filter(gene == gene_name)
@@ -742,7 +702,7 @@ for (q in c("STRONG", "DE only", "ChIP only", "WEAK", "NOT IN DATA")) {
   if (length(g) > 0) cat(sprintf("  %s (%d): %s\n", q, length(g), paste(g, collapse = ", ")))
 }
 
-write_csv(validation, "q4_candidate_validation.csv")
+write_csv(validation, results_path("q4_candidate_validation.csv"))
 
 # Propose alternatives: DE in both experiments AND ChIP-seq binding
 all_known <- unique(c(candidate_genes, nodal_genes))
@@ -781,7 +741,7 @@ print(as.data.frame(alt_full %>% head(20) %>%
   dplyr::select(gene, log2FC, padj_str, baseMean, smad2_peaks, eomesa_peaks, has_foxh1, score)),
   row.names = FALSE)
 
-write_csv(alt_full, "q4_alternative_candidates.csv")
+write_csv(alt_full, results_path("q4_alternative_candidates.csv"))
 
 # --- FIGURE 5: Candidate validation volcano ---
 
@@ -820,8 +780,8 @@ p_validation <- ggplot(val_plot_data,
     plot.caption = element_text(size = 8, hjust = 0, color = "grey50")
   )
 
-ggsave("q4_candidate_validation.pdf", p_validation, width = 9, height = 7)
-cat("\nSaved: q4_candidate_validation.pdf\n")
+ggsave(results_path("q4_candidate_validation.pdf"), p_validation, width = 9, height = 7)
+cat("\nSaved:", results_path("q4_candidate_validation.pdf"), "\n")
 
 # ============================================================================
 # FINAL SUMMARY
@@ -847,13 +807,13 @@ weak   <- validation %>% filter(quality %in% c("WEAK", "NOT IN DATA")) %>% pull(
 cat(sprintf("\nValid candidates (STRONG): %s\n", paste(strong, collapse = ", ")))
 cat(sprintf("Weak/missing candidates: %s\n", paste(weak, collapse = ", ")))
 
-cat("\n=== Output Files ===\n")
+cat("\n=== Output Files (all in results/) ===\n")
 cat("  CSV:  q4_chipseq_candidates.csv, q4_chipseq_nodal.csv\n")
 cat("        q4_peak_expression_times.csv, q4_temporal_clusters.csv\n")
 cat("        q4_reversibility_scores.csv, q4_combined_summary.csv\n")
 cat("        q4_candidate_validation.csv, q4_alternative_candidates.csv\n")
-cat("  PDF:  q4_chipseq_binding_heatmap.pdf  (Fig 1 – ChIP-seq heatmap)\n")
-cat("        q4_temporal_clusters.pdf        (Fig 2 – 2×2 behaviour clusters)\n")
-cat("        q4_reversibility_profile.pdf    (Fig 3 – expression shift profile)\n")
-cat("        q4_integrated_overview.pdf      (Fig 4 – timing vs reversibility)\n")
-cat("        q4_candidate_validation.pdf     (Fig 5 – validation volcano)\n")
+cat("  PDF:  q4_chipseq_binding_heatmap.pdf  (Fig 1)\n")
+cat("        q4_temporal_clusters.pdf        (Fig 2)\n")
+cat("        q4_reversibility_profile.pdf    (Fig 3)\n")
+cat("        q4_integrated_overview.pdf      (Fig 4)\n")
+cat("        q4_candidate_validation.pdf     (Fig 5)\n")

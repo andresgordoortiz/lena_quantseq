@@ -1,43 +1,28 @@
 # Question 2: Nodal Score - Cumulative Expression with Variance Ribbons
 # Publication-ready figure for LaTeX (Helvetica)
 
-library(DESeq2)
-library(readr)
-library(tidyverse)
-library(readxl)
+source("preprocess.R")
 
-# Load data
-counts_raw <- read.table("salmon.merged.gene_counts.tsv", header = TRUE, row.names = 1)[, -1]
-counts_int <- round(counts_raw)
-samples <- read_csv("samples.csv", show_col_types = FALSE)
-
-# Build metadata
-metadata <- data.frame(
-
-  sample = paste0("S", samples$requests_sample_sample_id),
-  treatment = sub("^\\d{8}_R\\d+_", "", samples$sample_description),
-  row.names = paste0("S", samples$requests_sample_sample_id)
-) %>%
+# Load data (from preprocess.R)
+# Filter to Exp2 only
+metadata_q2 <- metadata %>%
   mutate(
-    experiment = ifelse(grepl("DMSO|SB50", treatment), "Exp2", "Exp1"),
     condition = case_when(
-      grepl("^0ngml.*DMSO", treatment) ~ "0ngml_DMSO",
-      grepl("^15ngml.*DMSO", treatment) ~ "15ngml_DMSO",
-      grepl("50uMSB50.*60min", treatment) ~ "SB50_60min",
-      grepl("50uMSB50.*120min", treatment) ~ "SB50_120min",
-      grepl("50uMSB50.*180min", treatment) ~ "SB50_180min"
+      concentration == "0ngml_DMSO"  ~ "0ngml_DMSO",
+      concentration == "15ngml_DMSO" ~ "15ngml_DMSO",
+      concentration == "SB50" & time_min == 60  ~ "SB50_60min",
+      concentration == "SB50" & time_min == 120 ~ "SB50_120min",
+      concentration == "SB50" & time_min == 180 ~ "SB50_180min"
     )
   ) %>%
-  filter(experiment == "Exp2", !is.na(condition))
+  filter(!is.na(condition))
 
 # Filter and normalize
-common_samples <- intersect(colnames(counts_int), rownames(metadata))
-counts_exp2 <- counts_int[, common_samples]
-metadata <- metadata[common_samples, ]
-counts_filtered <- counts_exp2[rowSums(counts_exp2 >= 10) >= 3, ]
+counts_exp2 <- counts_filtered[, rownames(metadata_q2)]
+counts_q2 <- counts_exp2[rowSums(counts_exp2 >= 10) >= 3, ]
 
-metadata$condition <- factor(metadata$condition)
-dds <- DESeqDataSetFromMatrix(counts_filtered, metadata, ~ 1)
+metadata_q2$condition <- factor(metadata_q2$condition)
+dds <- DESeqDataSetFromMatrix(counts_q2, metadata_q2, ~ 1)
 dds <- estimateSizeFactors(dds)
 norm_counts <- counts(dds, normalized = TRUE)
 
@@ -55,7 +40,7 @@ cond_colors <- c("0ngml_DMSO" = "#BDBDBD", "15ngml_DMSO" = "#5FB358",
                  "SB50_60min" = "#FDBF6F", "SB50_120min" = "#FF7F00", "SB50_180min" = "#E31A1C")
 
 # Order genes by control expression
-gene_order <- order(rowMeans(nodal_counts[, metadata$condition == "0ngml_DMSO"]))
+gene_order <- order(rowMeans(nodal_counts[, metadata_q2$condition == "0ngml_DMSO"]))
 ordered_genes <- rownames(nodal_counts)[gene_order]
 
 # Cumulative expression per sample
@@ -65,7 +50,7 @@ cumsum_mat <- sapply(colnames(nodal_counts), function(s) cumsum(log2(nodal_count
 cumsum_stats <- expand.grid(gene_rank = 1:n_nodal, condition = conditions) %>%
   rowwise() %>%
   mutate(
-    vals = list(cumsum_mat[gene_rank, rownames(metadata)[metadata$condition == condition]]),
+    vals = list(cumsum_mat[gene_rank, rownames(metadata_q2)[metadata_q2$condition == condition]]),
     mean = mean(unlist(vals)),
     sd = sd(unlist(vals))
   ) %>%
@@ -77,7 +62,7 @@ cumsum_stats <- expand.grid(gene_rank = 1:n_nodal, condition = conditions) %>%
 # This is the correct metric: total cumulative expression per sample
 final_cumsum_per_sample <- data.frame(
   sample = colnames(cumsum_mat),
-  condition = factor(metadata[colnames(cumsum_mat), "condition"], levels = conditions),
+  condition = factor(metadata_q2[colnames(cumsum_mat), "condition"], levels = conditions),
   cumsum_score = cumsum_mat[n_nodal, ]  # Final cumulative value
 )
 
@@ -99,11 +84,11 @@ calc_mean_curve <- function(samples_idx, mat) {
   rowMeans(mat[, samples_idx, drop = FALSE])
 }
 
-ctrl_samples <- which(metadata$condition == "0ngml_DMSO")
+ctrl_samples <- which(metadata_q2$condition == "0ngml_DMSO")
 ctrl_curve <- calc_mean_curve(ctrl_samples, cumsum_mat)
 
 pairwise <- map_dfr(conditions[-1], function(cond) {
-  test_samples <- which(metadata$condition == cond)
+    test_samples <- which(metadata_q2$condition == cond)
   test_curve <- calc_mean_curve(test_samples, cumsum_mat)
 
   # Observed statistic: mean difference across all ranks
@@ -136,7 +121,7 @@ pairwise <- map_dfr(conditions[-1], function(cond) {
   tibble(condition = cond, mean_diff = obs_diff, max_dev = obs_max_dev, p_perm = p_perm, sig = sig)
 })
 
-write_csv(pairwise, "q2_statistical_tests.csv")
+write_csv(pairwise, results_path("q2_statistical_tests.csv"))
 
 # Kruskal-Wallis on final scores (for caption, less important now)
 kw <- kruskal.test(cumsum_score ~ condition, data = final_cumsum_per_sample)
@@ -213,13 +198,13 @@ for(i in seq_len(nrow(annot))) {
 }
 
 # Save
-pdf("q2_nodal_score_cumulative.pdf", width = 10, height = 7, family = "Helvetica")
+pdf(results_path("q2_nodal_score_cumulative.pdf"), width = 10, height = 7, family = "Helvetica")
 print(p)
 dev.off()
 
-png("q2_nodal_score_cumulative.png", width = 10, height = 5, units = "in", res = 300)
+png(results_path("q2_nodal_score_cumulative.png"), width = 10, height = 5, units = "in", res = 300)
 print(p)
 dev.off()
 
-write_csv(final_cumsum_per_sample, "q2_nodal_scores_per_sample.csv")
-cat("\nSaved: q2_nodal_score_cumulative.pdf/png\n")
+write_csv(final_cumsum_per_sample, results_path("q2_nodal_scores_per_sample.csv"))
+cat("\nSaved:", results_path("q2_nodal_score_cumulative.pdf"), "\n")

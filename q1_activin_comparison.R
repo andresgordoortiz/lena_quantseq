@@ -1,55 +1,8 @@
 # Question 1: Compare DGE for 0 ng/ml vs 15 ng/ml Activin - Exp1 vs Exp2
 # Straightforward academic comparison with clean visualizations
 
-library(DESeq2)
-library(readr)
-library(tidyverse)
-library(readxl)
+source("preprocess.R")
 library(pheatmap)
-
-# ============================================================================
-# LOAD AND PREPARE DATA
-# ============================================================================
-
-counts_raw <- read.table("salmon.merged.gene_counts.tsv", header = TRUE, row.names = 1)
-counts_raw <- counts_raw[, -1]
-counts_int <- round(counts_raw)
-
-samples <- read_csv("samples.csv")
-parse_sample_names <- function(sample_name) {
-  sub("^\\d{8}_R\\d+_", "", sample_name)
-}
-clean_treatments <- sapply(samples$sample_description, parse_sample_names, USE.NAMES = FALSE)
-
-metadata <- data.frame(
-  sample = paste0("S", samples$requests_sample_sample_id),
-  treatment = clean_treatments,
-  row.names = paste0("S", samples$requests_sample_sample_id)
-)
-
-metadata$experiment <- ifelse(grepl("DMSO|SB50", metadata$treatment), "Exp2", "Exp1")
-metadata$concentration <- case_when(
-  grepl("^0ngmlActivin", metadata$treatment) ~ "0ngml",
-  grepl("^5ngmlActivin", metadata$treatment) ~ "5ngml",
-  grepl("^10ngmlActivin", metadata$treatment) ~ "10ngml",
-  grepl("^15ngmlActivin", metadata$treatment) ~ "15ngml",
-  grepl("DMSO", metadata$treatment) & grepl("^0ngml", metadata$treatment) ~ "0ngml_DMSO",
-  grepl("DMSO", metadata$treatment) & grepl("^15ngml", metadata$treatment) ~ "15ngml_DMSO",
-  TRUE ~ NA_character_
-)
-metadata$time_min <- as.numeric(str_extract(metadata$treatment, "\\d+(?=min$)"))
-
-# Filter counts
-common_samples <- intersect(colnames(counts_int), rownames(metadata))
-counts_int <- counts_int[, common_samples]
-metadata <- metadata[common_samples, ]
-
-# Keep genes with at least 10 counts in at least 3 samples
-keep <- rowSums(counts_int >= 10) >= 3
-counts_filtered <- counts_int[keep, ]
-
-cat("Total samples:", ncol(counts_filtered), "\n")
-cat("Genes after filtering:", nrow(counts_filtered), "\n")
 
 # ============================================================================
 # ANALYSIS: 0 vs 15 ng/ml Activin - Experiment 1
@@ -68,20 +21,10 @@ exp1_240min <- metadata[
 
 cat("Samples:", nrow(exp1_240min), "\n")
 
-exp1_240min$concentration <- factor(exp1_240min$concentration, levels = c("0ngml", "15ngml"))
+exp1_treated <- exp1_240min[exp1_240min$concentration == "15ngml", ]
+exp1_control <- exp1_240min[exp1_240min$concentration == "0ngml", ]
 
-dds_exp1 <- DESeqDataSetFromMatrix(
-    countData = counts_filtered[, rownames(exp1_240min)],
-    colData = exp1_240min,
-    design = ~ concentration
-  )
-dds_exp1 <- DESeq(dds_exp1, quiet = TRUE)
-res_exp1 <- results(dds_exp1, contrast = c("concentration", "15ngml", "0ngml"))
-
-res_exp1_df <- as.data.frame(res_exp1) %>%
-  rownames_to_column("gene") %>%
-  filter(!is.na(padj)) %>%
-  arrange(padj)
+res_exp1_df <- run_deseq(exp1_treated, exp1_control)
 
 n_de <- sum(res_exp1_df$padj < 0.05 & abs(res_exp1_df$log2FoldChange) >= 1, na.rm = TRUE)
 n_up <- sum(res_exp1_df$padj < 0.05 & res_exp1_df$log2FoldChange > 1, na.rm = TRUE)
@@ -93,7 +36,7 @@ cat("  Downregulated:", n_down, "\n")
 cat("\nTop 10 DE genes (by padj):\n")
 print(head(res_exp1_df[, c("gene", "log2FoldChange", "padj")], 10))
 
-write_csv(res_exp1_df, "q1_exp1_0vs15_activin_240min.csv")
+write_csv(res_exp1_df, results_path("q1_exp1_0vs15_activin_240min.csv"))
 
 # Volcano plot
  res_exp1_df$sig <- ifelse(res_exp1_df$padj < 0.05 & abs(res_exp1_df$log2FoldChange) > 1.0, "DE", "Not significant")
@@ -125,25 +68,15 @@ cat("========================================\n")
 
 exp2_dmso <- metadata[
   metadata$experiment == "Exp2" &
-  metadata$concentration %in% c("0ngml", "15ngml"),
+  metadata$concentration %in% c("0ngml_DMSO", "15ngml_DMSO"),
 ]
 
 cat("Samples:", nrow(exp2_dmso), "\n")
 
-exp2_dmso$concentration <- factor(exp2_dmso$concentration, levels = c("0ngml", "15ngml"))
+exp2_treated <- exp2_dmso[exp2_dmso$concentration == "15ngml_DMSO", ]
+exp2_control <- exp2_dmso[exp2_dmso$concentration == "0ngml_DMSO", ]
 
-dds_exp2 <- DESeqDataSetFromMatrix(
-  countData = counts_filtered[, rownames(exp2_dmso)],
-  colData = exp2_dmso,
-  design = ~ concentration
-)
-dds_exp2 <- DESeq(dds_exp2, quiet = TRUE)
-res_exp2 <- results(dds_exp2, contrast = c("concentration", "15ngml", "0ngml"))
-
-res_exp2_df <- as.data.frame(res_exp2) %>%
-  rownames_to_column("gene") %>%
-  filter(!is.na(padj)) %>%
-  arrange(padj)
+res_exp2_df <- run_deseq(exp2_treated, exp2_control)
 
 n_de <- sum(res_exp2_df$padj < 0.05 & abs(res_exp2_df$log2FoldChange) >= 1, na.rm = TRUE)
 n_up <- sum(res_exp2_df$padj < 0.05 & res_exp2_df$log2FoldChange >= 1, na.rm = TRUE)
@@ -155,7 +88,7 @@ cat("  Downregulated:", n_down, "\n")
 cat("\nTop 10 DE genes (by padj):\n")
 print(head(res_exp2_df[, c("gene", "log2FoldChange", "padj")], 10))
 
-write_csv(res_exp2_df, "q1_exp2_0vs15_dmso.csv")
+write_csv(res_exp2_df, results_path("q1_exp2_0vs15_dmso.csv"))
 
 # Volcano plot
 res_exp2_df$sig <- ifelse(res_exp2_df$padj < 0.05 & abs(res_exp2_df$log2FoldChange) > 1, "DE", "Not significant")
@@ -338,17 +271,15 @@ if(length(overlap) > 0) {
     )
 
   # Save combined plot
-  pdf("q1_combined_volcano.pdf", width = 10, height = 6, family = "Helvetica")
-  print(combined)
-  dev.off()
-  cat("\nSaved: q1_combined_volcano.pdf\n")
+  ggsave(results_path("q1_combined_volcano.pdf"), combined, width = 10, height = 6)
+  cat("\nSaved:", results_path("q1_combined_volcano.pdf"), "\n")
 
   # Save shared genes CSV with log2FC from both datasets
   shared_output <- shared_fc %>%
     arrange(desc(abs(log2FoldChange_Exp1) + abs(log2FoldChange_Exp2))) %>%
     dplyr::select(gene, log2FoldChange_Exp1, padj_Exp1, log2FoldChange_Exp2, padj_Exp2)
 
-  write_csv(shared_output, "q1_shared_de_genes.csv")
+  write_csv(shared_output, results_path("q1_shared_de_genes.csv"))
   cat("Saved: q1_shared_de_genes.csv\n")
   cat("  Contains", nrow(shared_output), "shared DE genes\n")
 } else {

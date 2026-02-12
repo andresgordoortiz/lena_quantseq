@@ -1,5 +1,10 @@
 salmon_out<- read.table("salmon.merged.gene_counts_length_scaled.tsv", header = T)
 
+# NOTE: This is an exploratory script. For the main analysis,
+# source("preprocess.R") provides consistent preprocessing.
+# This script uses length-scaled counts which are different from the raw counts
+# used in the main analyses.
+
 library(readr)
 library(tidyverse)
 samples <- read_csv("samples.csv")
@@ -16,9 +21,9 @@ parse_sample_names <- function(sample_name) {
 
 clean_treatments <- sapply(sample_names, parse_sample_names, USE.NAMES = FALSE)
 
-simple_metadata<-data.frame(sample=paste0("S",samples$requests_sample_sample_id), 
+simple_metadata<-data.frame(sample=paste0("S",samples$requests_sample_sample_id),
                             treatment=clean_treatments,
-                            experiment=ifelse(grepl("DMSO", clean_treatments) | grepl("SB50", clean_treatments) 
+                            experiment=ifelse(grepl("DMSO", clean_treatments) | grepl("SB50", clean_treatments)
                                               , 2,1))
 
 # Function to extract concentration and time from treatment names
@@ -33,12 +38,12 @@ extract_concentration_time <- function(treatment) {
     grepl("DMSO", treatment) ~ "0 ng/ml",  # DMSO is control, so 0 ng/ml
     TRUE ~ NA_character_
   )
-  
+
   # Extract exposure time (in minutes)
   time <- str_extract(treatment, "\\d+min$")
   time <- str_remove(time, "min")
-  
-  return(data.frame(concentration = concentration, 
+
+  return(data.frame(concentration = concentration,
                     exposure_time_min = as.numeric(time)))
 }
 
@@ -50,7 +55,7 @@ simple_metadata <- cbind(simple_metadata, concentration_time)
 
 
 library(readxl)
-nodal_score<- read_excel("docs/nodal-score-genes_complete.xlsx", 
+nodal_score<- read_excel("docs/nodal-score-genes_complete.xlsx",
                                          skip = 1)
 
 

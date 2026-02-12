@@ -1,10 +1,8 @@
 # GO Molecular Function Analysis - Publication-Ready Plots
 # Uses styling from exp1_maria_reanalysis.R and q3_sb50_comparison.R
 
-library(tidyverse)
-library(ggplot2)
+source("preprocess.R")
 library(openxlsx)
-library(patchwork)
 
 # ============================================================================
 # COLOR PALETTES
@@ -20,12 +18,12 @@ concentration_colors <- c(
 # LOAD DATA
 # ============================================================================
 
-if (!file.exists("exp1_go_mf_results.xlsx") || !file.exists("exp2_go_mf_results.xlsx")) {
+if (!file.exists(results_path("exp1_go_mf_results.xlsx")) || !file.exists(results_path("exp2_go_mf_results.xlsx"))) {
   stop("Please run go_analysis_simple.R first to generate the GO results")
 }
 
-exp1_go_df <- read.xlsx("exp1_go_mf_results.xlsx", sheet = 1)
-exp2_go_df <- read.xlsx("exp2_go_mf_results.xlsx", sheet = 1)
+exp1_go_df <- read.xlsx(results_path("exp1_go_mf_results.xlsx"), sheet = 1)
+exp2_go_df <- read.xlsx(results_path("exp2_go_mf_results.xlsx"), sheet = 1)
 
 cat("Loaded", nrow(exp1_go_df), "Exp1 GO terms and", nrow(exp2_go_df), "Exp2 GO terms\n")
 
@@ -151,8 +149,8 @@ if (nrow(exp1_go_df) > 0) {
       size = guide_legend(order = 2, override.aes = list(fill = "grey50"))
     )
 
-  ggsave("exp1_go_mf_publication.pdf", p_exp1_combined, width = 13, height = 6, device = cairo_pdf)
-  cat("Saved: exp1_go_mf_publication.pdf\n")
+  ggsave(results_path("exp1_go_mf_publication.pdf"), p_exp1_combined, width = 13, height = 6, device = cairo_pdf)
+  cat("Saved:", results_path("exp1_go_mf_publication.pdf"), "\n")
 }
 
 # ============================================================================
@@ -268,8 +266,8 @@ if (nrow(exp2_go_df) > 0) {
       size = guide_legend(order = 2, override.aes = list(fill = "grey50"))
     )
 
-  ggsave("exp2_go_mf_publication.pdf", p_exp2, width = 11, height = 6, device = cairo_pdf)
-  cat("Saved: exp2_go_mf_publication.pdf\n")
+  ggsave(results_path("exp2_go_mf_publication.pdf"), p_exp2, width = 11, height = 6, device = cairo_pdf)
+  cat("Saved:", results_path("exp2_go_mf_publication.pdf"), "\n")
 }
 
 # ============================================================================
@@ -288,8 +286,8 @@ if (nrow(exp1_go_df) > 0 && nrow(exp2_go_df) > 0) {
 
   combined <- p_exp1_tagged / p_exp2_tagged
 
-  ggsave("go_mf_combined_publication.pdf", combined, width = 13, height = 11, device = pdf)
-  cat("Saved: go_mf_combined_publication.pdf\n")
+  ggsave(results_path("go_mf_combined_publication.pdf"), combined, width = 13, height = 11, device = pdf)
+  cat("Saved:", results_path("go_mf_combined_publication.pdf"), "\n")
 }
 
 cat("\n=== Publication plots generated ===\n")

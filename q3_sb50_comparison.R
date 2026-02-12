@@ -28,37 +28,7 @@ library(tidyverse)
 library(ggplot2)
 library(patchwork)
 
-# ============================================================================
-# DATA PREPARATION
-# ============================================================================
-
-counts_raw <- read.table("salmon.merged.gene_counts.tsv", header = TRUE, row.names = 1)
-counts_raw <- counts_raw[, -1]
-counts_int <- round(counts_raw)
-
-samples <- read_csv("samples.csv", show_col_types = FALSE)
-metadata <- data.frame(
-  sample = paste0("S", samples$requests_sample_sample_id),
-  treatment = sub("^\\d{8}_R\\d+_", "", samples$sample_description),
-  row.names = paste0("S", samples$requests_sample_sample_id)
-)
-
-metadata$experiment <- ifelse(grepl("DMSO|SB50", metadata$treatment), "Exp2", "Exp1")
-metadata$concentration <- case_when(
-  grepl("^50uMSB50", metadata$treatment) ~ "SB50",
-  grepl("DMSO", metadata$treatment) & grepl("^15ngml", metadata$treatment) ~ "15ngml_DMSO",
-  grepl("DMSO", metadata$treatment) & grepl("^0ngml", metadata$treatment) ~ "0ngml_DMSO",
-  grepl("^15ngmlActivin", metadata$treatment) ~ "15ngml_Activin",
-  grepl("^0ngmlActivin", metadata$treatment) & !grepl("DMSO", metadata$treatment) ~ "0ngml_Activin",
-  TRUE ~ "other"
-)
-metadata$time_min <- as.numeric(str_extract(metadata$treatment, "\\d+(?=min$)"))
-
-common_samples <- intersect(colnames(counts_int), rownames(metadata))
-counts_int <- counts_int[, common_samples]
-metadata <- metadata[common_samples, ]
-keep <- rowSums(counts_int >= 10) >= 3
-counts_filtered <- counts_int[keep, ]
+source("preprocess.R")
 
 # ============================================================================
 # DEFINE SAMPLE GROUPS (all Exp2 - collected at 240min)
@@ -77,43 +47,8 @@ baseline_ctrl <- metadata[metadata$concentration == "0ngml_DMSO", ]
 
 cat("=== SAMPLE COUNTS (all Exp2, collected at 240min) ===\n")
 cat("SB50+Activin: 60min=", nrow(sb50_60min), " 120min=", nrow(sb50_120min), " 180min=", nrow(sb50_180min), "\n")
-cat("  (timepoint = when SB50 was added)\n")
-cat("Activin only (15ngml_DMSO): ", nrow(activin_only), "\n")
-cat("Baseline (0ngml_DMSO): ", nrow(baseline_ctrl), "\n\n")
-
-# ============================================================================
-# DESeq2 FUNCTIONS
-# ============================================================================
-
-run_deseq <- function(test_samples, ref_samples, counts_mat) {
-  combined <- rbind(
-    data.frame(test_samples, group = "test"),
-    data.frame(ref_samples, group = "ref")
-  )
-  combined$group <- factor(combined$group, levels = c("ref", "test"))
-
-  dds <- DESeqDataSetFromMatrix(
-    countData = counts_mat[, rownames(combined)],
-    colData = combined,
-    design = ~ group
-  )
-  dds <- DESeq(dds, quiet = TRUE)
-  res <- results(dds, contrast = c("group", "test", "ref"))
-
-  as.data.frame(res) %>%
-    rownames_to_column("gene") %>%
-    filter(!is.na(padj)) %>%
-    arrange(padj)
-}
-
-print_summary <- function(res_df, name, lfc_thresh = 1.5) {
-  sig <- res_df$padj < 0.05 & abs(res_df$log2FoldChange) >= lfc_thresh
-  n_de <- sum(sig)
-  n_up <- sum(sig & res_df$log2FoldChange > 0)
-  n_down <- sum(sig & res_df$log2FoldChange < 0)
-  cat(sprintf("%s: %d DE (↑%d ↓%d)\n", name, n_de, n_up, n_down))
-  data.frame(comparison = name, de_genes = n_de, up = n_up, down = n_down)
-}
+cat("Activin only (15ngml_DMSO):", nrow(activin_only), "\n")
+cat("Baseline (0ngml_DMSO):", nrow(baseline_ctrl), "\n\n")
 
 # ============================================================================
 # COMPARISONS (all within Exp2, all vs baseline control)
@@ -139,13 +74,13 @@ sum3 <- print_summary(res_sb50_180_vs_baseline, "SB50_180min_vs_Baseline")
 # SAVE RESULTS
 # ============================================================================
 
-write_csv(res_activin_vs_baseline, "q3_Activin_vs_Baseline.csv")
-write_csv(res_sb50_60_vs_baseline, "q3_SB50_60min_vs_Baseline.csv")
-write_csv(res_sb50_120_vs_baseline, "q3_SB50_120min_vs_Baseline.csv")
-write_csv(res_sb50_180_vs_baseline, "q3_SB50_180min_vs_Baseline.csv")
+write_csv(res_activin_vs_baseline, results_path("q3_Activin_vs_Baseline.csv"))
+write_csv(res_sb50_60_vs_baseline, results_path("q3_SB50_60min_vs_Baseline.csv"))
+write_csv(res_sb50_120_vs_baseline, results_path("q3_SB50_120min_vs_Baseline.csv"))
+write_csv(res_sb50_180_vs_baseline, results_path("q3_SB50_180min_vs_Baseline.csv"))
 
 summary_all <- bind_rows(sum1, sum2, sum3)
-write_csv(summary_all, "q3_summary.csv")
+write_csv(summary_all, results_path("q3_summary.csv"))
 print(summary_all)
 
 # ============================================================================
@@ -349,11 +284,11 @@ combined_fig <- (p_scatter_60 + p_scatter_120) / (p_scatter_180 + p_bar_wrapped)
     )
   )
 
-ggsave("q3_analysis1_blocking.pdf", combined_fig, width = 8, height = 8)
-cat("\nSaved: q3_analysis1_blocking.pdf\n")
+ggsave(results_path("q3_analysis1_blocking.pdf"), combined_fig, width = 8, height = 8)
+cat("\nSaved:", results_path("q3_analysis1_blocking.pdf"), "\n")
 
 # Save results
-write_csv(prop_data %>% dplyr::select(timepoint, category, n, total, pct), "q3_category_summary.csv")
+write_csv(prop_data %>% dplyr::select(timepoint, category, n, total, pct), results_path("q3_category_summary.csv"))
 
 # ============================================================================
 # INTERPRETATION
@@ -414,9 +349,9 @@ cat("ANALYSIS 2: Direct comparisons to Activin references\n")
 cat(strrep("=", 70), "\n\n")
 
 # Need Exp1 Activin samples (time-matched)
-activin_exp1_60min  <- metadata[metadata$concentration == "15ngml_Activin" & metadata$time_min == 60, ]
-activin_exp1_120min <- metadata[metadata$concentration == "15ngml_Activin" & metadata$time_min == 120, ]
-activin_exp1_180min <- metadata[metadata$concentration == "15ngml_Activin" & metadata$time_min == 180, ]
+activin_exp1_60min  <- metadata[metadata$concentration == "15ngml" & metadata$time_min == 60, ]
+activin_exp1_120min <- metadata[metadata$concentration == "15ngml" & metadata$time_min == 120, ]
+activin_exp1_180min <- metadata[metadata$concentration == "15ngml" & metadata$time_min == 180, ]
 
 cat("Exp1 Activin samples: 60min=", nrow(activin_exp1_60min),
     " 120min=", nrow(activin_exp1_120min),
@@ -456,12 +391,12 @@ print_summary(res_sb50_120_vs_exp1_120, "SB50_120min(Exp2) vs Activin_120min(Exp
 print_summary(res_sb50_180_vs_exp1_180, "SB50_180min(Exp2) vs Activin_180min(Exp1)")
 
 # Save these results
-write_csv(res_sb50_60_vs_activin_only, "q3_SB50_60min_vs_ActivinOnly.csv")
-write_csv(res_sb50_120_vs_activin_only, "q3_SB50_120min_vs_ActivinOnly.csv")
-write_csv(res_sb50_180_vs_activin_only, "q3_SB50_180min_vs_ActivinOnly.csv")
-write_csv(res_sb50_60_vs_exp1_60, "q3_SB50_60min_vs_Exp1_60min.csv")
-write_csv(res_sb50_120_vs_exp1_120, "q3_SB50_120min_vs_Exp1_120min.csv")
-write_csv(res_sb50_180_vs_exp1_180, "q3_SB50_180min_vs_Exp1_180min.csv")
+write_csv(res_sb50_60_vs_activin_only, results_path("q3_SB50_60min_vs_ActivinOnly.csv"))
+write_csv(res_sb50_120_vs_activin_only, results_path("q3_SB50_120min_vs_ActivinOnly.csv"))
+write_csv(res_sb50_180_vs_activin_only, results_path("q3_SB50_180min_vs_ActivinOnly.csv"))
+write_csv(res_sb50_60_vs_exp1_60, results_path("q3_SB50_60min_vs_Exp1_60min.csv"))
+write_csv(res_sb50_120_vs_exp1_120, results_path("q3_SB50_120min_vs_Exp1_120min.csv"))
+write_csv(res_sb50_180_vs_exp1_180, results_path("q3_SB50_180min_vs_Exp1_180min.csv"))
 
 # ============================================================================
 # VISUALIZATION: Scatter plots of the two comparisons
@@ -605,11 +540,11 @@ combined_fig2 <- (p2_scatter_60 + p2_scatter_120) / (p2_scatter_180 + p2_bar) +
     )
   )
 
-ggsave("q3_analysis2_comparisons.pdf", combined_fig2, width = 8, height = 8)
-cat("\nSaved: q3_analysis2_comparisons.pdf\n")
+ggsave(results_path("q3_analysis2_comparisons.pdf"), combined_fig2, width = 8, height = 8)
+cat("\nSaved:", results_path("q3_analysis2_comparisons.pdf"), "\n")
 
 # Save comparison summary
-write_csv(comp_prop_data %>% dplyr::select(timepoint, category, n, total, pct), "q3_analysis2_summary.csv")
+write_csv(comp_prop_data %>% dplyr::select(timepoint, category, n, total, pct), results_path("q3_analysis2_summary.csv"))
 
 # ============================================================================
 # INTERPRETATION OF ANALYSIS 2

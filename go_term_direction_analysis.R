@@ -1,58 +1,20 @@
 # GO Term Gene Direction Analysis - Simple Boxplot
 # Shows log2FC direction for genes in signaling receptor GO terms
 
-library(DESeq2)
-library(readr)
-library(tidyverse)
+source("preprocess.R")
 library(org.Dr.eg.db)
 library(openxlsx)
-library(ggplot2)
+library(AnnotationDbi)
 
 # ============================================================================
-# DATA PREP
+# DATA PREP (uses shared counts_filtered, metadata from preprocess.R)
 # ============================================================================
 
-counts_raw <- read.table("salmon.merged.gene_counts.tsv", header = TRUE, row.names = 1)[, -1]
-counts_int <- round(counts_raw)
-samples <- read_csv("samples.csv", show_col_types = FALSE)
+counts_filt <- counts_filtered
 
-metadata <- data.frame(
-  sample = paste0("S", samples$requests_sample_sample_id),
-  treatment = sub("^\\d{8}_R\\d+_", "", samples$sample_description),
-  row.names = paste0("S", samples$requests_sample_sample_id)
-) %>%
-  mutate(
-    experiment = ifelse(grepl("DMSO|SB50", treatment), "Exp2", "Exp1"),
-    concentration = case_when(
-      grepl("^0ngmlActivin", treatment) & !grepl("DMSO", treatment) ~ "0ngml",
-      grepl("^5ngmlActivin", treatment) ~ "5ngml",
-      grepl("^10ngmlActivin", treatment) ~ "10ngml",
-      grepl("^15ngmlActivin", treatment) & !grepl("DMSO", treatment) ~ "15ngml",
-      grepl("^0ngml.*DMSO", treatment) ~ "0ngml_DMSO",
-      grepl("^15ngml.*DMSO", treatment) ~ "15ngml_DMSO",
-      grepl("^50uMSB50", treatment) ~ "SB50"
-    ),
-    time_min = as.numeric(str_extract(treatment, "\\d+(?=min$)"))
-  )
-
-common <- intersect(colnames(counts_int), rownames(metadata))
-counts_int <- counts_int[, common]
-metadata <- metadata[common, ]
-counts_filt <- counts_int[rowSums(counts_int >= 10) >= 3, ]
-
-run_deseq <- function(test_meta, ref_meta) {
-  combined <- rbind(
-    data.frame(test_meta, group = "test"),
-    data.frame(ref_meta, group = "ref")
-  )
-  combined$group <- factor(combined$group, levels = c("ref", "test"))
-  dds <- DESeqDataSetFromMatrix(counts_filt[, rownames(combined)], combined, ~ group)
-  dds <- DESeq(dds, quiet = TRUE)
-  results(dds, contrast = c("group", "test", "ref")) %>%
-    as.data.frame() %>%
-    rownames_to_column("gene") %>%
-    filter(!is.na(padj)) %>%
-    arrange(padj)
+# Use shared run_deseq from preprocess.R (with lfcShrink)
+run_deseq_go <- function(test_meta, ref_meta) {
+  run_deseq(test_meta, ref_meta, counts_mat = counts_filt)
 }
 
 # ============================================================================
@@ -131,7 +93,7 @@ de_list <- list()
 
 # Activin vs Baseline
 cat("Activin vs Baseline\n")
-de_list[["Activin"]] <- run_deseq(activin, baseline) %>%
+de_list[["Activin"]] <- run_deseq_go(activin, baseline) %>%
   mutate(condition = "Activin")
 
 # SB50 vs Baseline at each timepoint
@@ -140,7 +102,7 @@ for (time in c(60, 120, 180)) {
 
   name <- paste0("SB50_", time, "'\nvs Baseline")
   cat(name, "\n")
-  de_list[[name]] <- run_deseq(sb50, baseline) %>%
+  de_list[[name]] <- run_deseq_go(sb50, baseline) %>%
     mutate(condition = name)
 }
 
@@ -150,7 +112,7 @@ for (time in c(60, 120, 180)) {
 
   name <- paste0("SB50_", time, "'\nvs Activin")
   cat(name, "\n")
-  de_list[[name]] <- run_deseq(sb50, activin) %>%
+  de_list[[name]] <- run_deseq_go(sb50, activin) %>%
     mutate(condition = name)
 }
 
@@ -321,8 +283,8 @@ p <- ggplot(sig_counts, aes(x = condition, y = prop_plot)) +
     plot.margin = margin(t = 10, r = 15, b = 10, l = 10)
   )
 
-ggsave("exp2_go_genes_direction.pdf", p, width = 8, height = 8, device = pdf)
-cat("\nSaved: exp2_go_genes_direction.pdf\n")
+ggsave(results_path("exp2_go_genes_direction.pdf"), p, width = 8, height = 8, device = pdf)
+cat("\nSaved:", results_path("exp2_go_genes_direction.pdf"), "\n")
 
 # Also save a version showing the actual significant genes
 sig_genes <- plot_data %>%
@@ -331,9 +293,9 @@ sig_genes <- plot_data %>%
   dplyr::select(gene, condition, log2FoldChange, padj, direction) %>%
   arrange(condition, direction, desc(abs(log2FoldChange)))
 
-write.csv(sig_genes, "exp2_go_genes_significant.csv", row.names = FALSE)
-cat("Saved: exp2_go_genes_significant.csv\n")
+write.csv(sig_genes, results_path("exp2_go_genes_significant.csv"), row.names = FALSE)
+cat("Saved:", results_path("exp2_go_genes_significant.csv"), "\n")
 
 # Save the summary table
-write.csv(summary_table, "exp2_go_enrichment_summary.csv", row.names = FALSE)
-cat("Saved: exp2_go_enrichment_summary.csv\n")
+write.csv(summary_table, results_path("exp2_go_enrichment_summary.csv"), row.names = FALSE)
+cat("Saved:", results_path("exp2_go_enrichment_summary.csv"), "\n")

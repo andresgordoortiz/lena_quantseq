@@ -1,40 +1,9 @@
 # Heatmap of Nodal Score Genes - Experiment 1
 # Z-score expression grouped by time and concentration
 
-library(DESeq2)
-library(readr)
-library(tidyverse)
-library(readxl)
+source("preprocess.R")
 library(pheatmap)
 library(RColorBrewer)
-
-# Load counts
-counts_raw <- read.table("salmon.merged.gene_counts.tsv", header = TRUE, row.names = 1)
-counts_raw <- counts_raw[, -1]
-counts_int <- round(counts_raw)
-
-# Load sample metadata
-samples <- read_csv("samples.csv")
-parse_sample_names <- function(sample_name) {
-  sub("^\\d{8}_R\\d+_", "", sample_name)
-}
-clean_treatments <- sapply(samples$sample_description, parse_sample_names, USE.NAMES = FALSE)
-
-metadata <- data.frame(
-  sample = paste0("S", samples$requests_sample_sample_id),
-  treatment = clean_treatments,
-  row.names = paste0("S", samples$requests_sample_sample_id)
-)
-
-metadata$experiment <- ifelse(grepl("DMSO|SB50", metadata$treatment), "Exp2", "Exp1")
-metadata$concentration <- case_when(
-  grepl("^0ngmlActivin", metadata$treatment) ~ "0ngml",
-  grepl("^5ngmlActivin", metadata$treatment) ~ "5ngml",
-  grepl("^10ngmlActivin", metadata$treatment) ~ "10ngml",
-  grepl("^15ngmlActivin", metadata$treatment) ~ "15ngml",
-  TRUE ~ NA_character_
-)
-metadata$time_min <- as.numeric(str_extract(metadata$treatment, "\\d+(?=min$)"))
 
 # Filter to Experiment 1 only
 exp1_metadata <- metadata %>%
@@ -43,17 +12,13 @@ exp1_metadata <- metadata %>%
 cat("Experiment 1 samples:", nrow(exp1_metadata), "\n")
 
 # Get counts for Exp1 samples
-common_samples <- intersect(colnames(counts_int), rownames(exp1_metadata))
-counts_exp1 <- counts_int[, common_samples]
+common_samples <- intersect(colnames(counts_filtered), rownames(exp1_metadata))
+counts_exp1 <- counts_filtered[, common_samples]
 exp1_metadata <- exp1_metadata[common_samples, ]
-
-# Filter low-expressed genes
-keep <- rowSums(counts_exp1 >= 10) >= 3
-counts_filtered <- counts_exp1[keep, ]
 
 # Normalize counts (using simple design for normalization only)
 dds <- DESeqDataSetFromMatrix(
-  countData = counts_filtered,
+  countData = counts_exp1,
   colData = exp1_metadata,
   design = ~ 1
 )
@@ -157,7 +122,7 @@ ann_colors <- list(
 group_means_clean <- group_means_ordered[complete.cases(group_means_ordered), , drop = FALSE]
 cat("Genes after removing NA rows:", nrow(group_means_clean), "\n")
 
-pdf("nodal_heatmap_exp1_averaged.pdf", width = 10, height = 8, family = "Helvetica")
+pdf(results_path("nodal_heatmap_exp1_averaged.pdf"), width = 10, height = 8, family = "Helvetica")
 pheatmap(
   group_means_clean,
   annotation_col = annotation_col,

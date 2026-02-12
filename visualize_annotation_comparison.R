@@ -11,9 +11,7 @@
 #   3. Run the script AFTER RUNNING Q3 SCRIPT
 #
 
-library(tidyverse)
-library(ggplot2)
-library(patchwork)
+source("preprocess.R")
 
 # ============================================================================
 # CONFIGURATION
@@ -29,12 +27,16 @@ activin_affected_genes<-all_activin %>%
   dplyr::select(gene) %>%
   as.list() %>%
   unique()
-# Set this to your annotation comparison output directory
-ANNOTATION_DIR <- "compare_annotations"
+# Output directory for annotation figures
+ANNOTATION_OUT_DIR <- results_path("compare_annotations")
+if (!dir.exists(ANNOTATION_OUT_DIR)) dir.create(ANNOTATION_OUT_DIR, recursive = TRUE)
 
 # Your genes of interest (add gene names or IDs to check against new annotations)
 # Example: MY_GENES <- c("nodal", "lefty1", "lefty2", "pitx2", "gsc", "mixl1")
 MY_GENES <- activin_affected_genes
+
+# Set input directory to the annotation comparison output
+ANNOTATION_DIR <- "compare_annotations"
 
 # ============================================================================
 # LOAD DATA
@@ -340,17 +342,17 @@ combined_fig <- (p1 + p2) / (p3 + p4) +
   )
 
 ggsave(
-  file.path(ANNOTATION_DIR, "annotation_comparison_figure.pdf"),
+  file.path(ANNOTATION_OUT_DIR, "annotation_comparison_figure.pdf"),
   combined_fig, width = 12, height = 10
 )
-cat("\nSaved: annotation_comparison_figure.pdf\n")
+cat("\nSaved:", file.path(ANNOTATION_OUT_DIR, "annotation_comparison_figure.pdf"), "\n")
 
 # Also save as PNG for quick viewing
 ggsave(
-  file.path(ANNOTATION_DIR, "annotation_comparison_figure.png"),
+  file.path(ANNOTATION_OUT_DIR, "annotation_comparison_figure.png"),
   combined_fig, width = 12, height = 10, dpi = 150
 )
-cat("Saved: annotation_comparison_figure.png\n")
+cat("Saved:", file.path(ANNOTATION_OUT_DIR, "annotation_comparison_figure.png"), "\n")
 
 # ============================================================================
 # ============================================================================
@@ -450,8 +452,8 @@ if (length(MY_GENES) == 0) {
     was_removed = tolower(MY_GENES) %in% tolower(c(found_removed$gene_name, found_removed$gene_id))
   )
 
-  write_csv(gene_check_results, file.path(ANNOTATION_DIR, "my_genes_annotation_check.csv"))
-  cat("\nSaved: my_genes_annotation_check.csv\n")
+  write_csv(gene_check_results, file.path(ANNOTATION_OUT_DIR, "my_genes_annotation_check.csv"))
+  cat("\nSaved:", file.path(ANNOTATION_OUT_DIR, "my_genes_annotation_check.csv"), "\n")
 }
 
 # ============================================================================
@@ -467,7 +469,7 @@ cat(strrep("=", 70), "\n\n")
 if (nrow(newly_annotated_named) > 0) {
   write_csv(
     newly_annotated_named %>% arrange(gene_name),
-    file.path(ANNOTATION_DIR, "newly_annotated_genes_with_names.csv")
+    file.path(ANNOTATION_OUT_DIR, "newly_annotated_genes_with_names.csv")
   )
   cat(paste0("Exported ", format(nrow(newly_annotated_named), big.mark = ","), " newly annotated genes with official names\n"))
 }
@@ -476,7 +478,7 @@ if (nrow(newly_annotated_named) > 0) {
 if (nrow(genes_new_names) > 0) {
   write_csv(
     genes_new_names %>% arrange(new_name),
-    file.path(ANNOTATION_DIR, "genes_renamed_to_official.csv")
+    file.path(ANNOTATION_OUT_DIR, "genes_renamed_to_official.csv")
   )
   cat(paste0("Exported ", format(nrow(genes_new_names), big.mark = ","), " genes that received official names\n"))
 }

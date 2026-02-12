@@ -93,11 +93,11 @@ sbatch submit_nextflow_clip.sh \
   -with-tower
 \end{lstlisting}
 
-The raw output files for the pipeline can be found in \verb|/bioinfo/andres.gordo/rnaseq_nfcore_out_umi.tar.gz|. The main output file that was used for downstream analysis is the gene counts matrix \verb|salmon.merged.gene_counts.tsv|. Normalisation and differential expression analysis was performed using DESeq2 in R (see code for details). From now onwards, a differentially expressed gene (DEG) is defined as one with an adjusted p-value $< 0.05$ (BH) and an absolute log2 fold change $\geq 1.0$. Genes with less than 10 counts across at least 3 samples were filtered out prior to DE analysis. This, as will be observed later, resulted in wnt11---member of the Nodal score---being lost. The variance was not stabilised, as I wanted to keep the log2 fold changes as close to the raw counts as possible.
+The raw output files for the pipeline can be found in \verb|/bioinfo/andres.gordo/rnaseq_nfcore_out_umi.tar.gz|. The main output file that was used for downstream analysis is the gene counts matrix \verb|salmon.merged.gene_counts.tsv|. Normalisation and differential expression analysis was performed using DESeq2 in R (see code for details), with log2 fold-change shrinkage applied via the apeglm method (Zhu, Ibrahim \& Love, 2019) to stabilise extreme effect-size estimates. From now onwards, a differentially expressed gene (DEG) is defined as one with an adjusted p-value $< 0.05$ (BH) and an absolute log2 fold change $\geq 1.0$. Genes with less than 10 counts across at least 3 samples were filtered out prior to DE analysis. This, as will be observed later, resulted in wnt11---member of the Nodal score---being lost.
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=\columnwidth]{compare_annotations/annotation_comparison_figure.pdf}
+\includegraphics[width=\columnwidth]{results/compare_annotations/annotation_comparison_figure.pdf}
 \caption{Annotations differences between the GRCz11 and GRCz12tu builds, showing the number of genes that were added, removed, or kept in each biotype category. None of the DEGs obtained in the following analyses were affected by these changes.}
 \label{fig:annotation_changes}
 \end{figure}
@@ -111,7 +111,7 @@ I started by quickly re-exploring one of Maria's previous analyses to 1) ensure 
 % --- Single column figure ---
 \begin{figure}[H]
 \centering
-\includegraphics[width=\columnwidth]{nodal_heatmap_exp1_averaged.pdf}
+\includegraphics[width=\columnwidth]{results/nodal_heatmap_exp1_averaged.pdf}
 \caption{Z Score of counts from the Nodal score genes across different time points and Activin concentration in Experiment 1.}
 \label{fig:single}
 \end{figure}
@@ -121,7 +121,7 @@ I started by quickly re-exploring one of Maria's previous analyses to 1) ensure 
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=\columnwidth]{q1_combined_volcano.pdf}
+\includegraphics[width=\columnwidth]{results/q1_combined_volcano.pdf}
 \caption{Volcano plots of DEGs in each experiment. In purple the shared genes. DEGs defined as adjusted p-value $<= 0.05$ and absolute log2 fold change $>= 1.0$.}
 \label{fig:exp1_vs_exp2}
 \end{figure}
@@ -134,7 +134,7 @@ Next on the list was to re-explore how the selected list of genes belonging to t
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=\columnwidth]{q2_nodal_score_cumulative.pdf}
+\includegraphics[width=\columnwidth]{results/q2_nodal_score_cumulative.pdf}
 \caption{Nodal score cumulative expression across treatments. A Kruskal-Wallis test was performed to assess significance across all conditions, followed by pairwise Wilcoxon tests with BH correction. Asterisks indicate significant pairwise comparisons against the control (0ngml DMSO): * p $< 0.05$, ** p $< 0.01$, *** p $< 0.001$.}
 \label{fig:nodalscore}
 \end{figure}
@@ -146,7 +146,7 @@ Next, I wanted to explore how many of the genes that were altered by Activin wer
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=\columnwidth]{q3_analysis1_blocking.pdf}
+\includegraphics[width=\columnwidth]{results/q3_analysis1_blocking.pdf}
 \caption{Number and proportion of activin-induced genes that are blocked, not blocked, or reversed by SB50 treatment at different timepoints.}
 \label{fig:sb50_blocking}
 \end{figure}
@@ -164,7 +164,7 @@ These two figures suggest that:
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=\columnwidth]{q3_analysis2_comparisons.pdf}
+\includegraphics[width=\columnwidth]{results/q3_analysis2_comparisons.pdf}
 \caption{Comparison of gene expression changes induced by SB50 treatment at endpoint vs.\ activin-induced changes at different timepoints. Each panel corresponds to a different SB50 addition time (60min, 120min, 180min).}
 \label{fig:sb50_vs_time}
 \end{figure}
@@ -183,14 +183,14 @@ However, we do see an enrichment of receptor signalling terms at 120 minutes. Th
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=\textwidth]{go_mf_combined_publication.pdf}
+\includegraphics[width=\textwidth]{results/go_mf_combined_publication.pdf}
 \caption{Molecular Function GO term enrichment analysis for Experiment 1 (top) and Experiment 2 (bottom). In Experiment 1, each panel corresponds to a different timepoint (60min, 120min, 240min), with different Activin concentrations (0ng/ml, 5ng/ml, 15ng/ml) compared to the control (0ng/ml). In Experiment 2, each panel corresponds to a different comparison: Activin vs.\ Control (left), SB50 vs.\ Control (centre), SB50 vs.\ Activin (right). Only the top 10 enriched terms per condition are shown.}
 \label{fig:go_mf}
 \end{figure*}
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=\columnwidth]{exp2_go_genes_direction.pdf}
+\includegraphics[width=\columnwidth]{results/exp2_go_genes_direction.pdf}
 \caption{Direction of gene expression changes for genes driving the `signalling receptor activity' GO term enrichment in Experiment 2 comparisons.}
 \label{fig:receptors_go}
 \end{figure}

@@ -1,63 +1,25 @@
 # GO Molecular Function Analysis - Simplified
 # Danio rerio reference genome
 
-library(DESeq2)
-library(readr)
-library(tidyverse)
+source("preprocess.R")
 library(clusterProfiler)
 library(org.Dr.eg.db)
 library(openxlsx)
-library(ggplot2)
 
 # ============================================================================
-# DATA PREP
+# DATA PREP (uses shared counts_filtered, metadata from preprocess.R)
 # ============================================================================
 
-counts_raw <- read.table("salmon.merged.gene_counts.tsv", header = TRUE, row.names = 1)[, -1]
-counts_int <- round(counts_raw)
-samples <- read_csv("samples.csv", show_col_types = FALSE)
-
-metadata <- data.frame(
-  sample = paste0("S", samples$requests_sample_sample_id),
-  treatment = sub("^\\d{8}_R\\d+_", "", samples$sample_description),
-  row.names = paste0("S", samples$requests_sample_sample_id)
-) %>%
-  mutate(
-    experiment = ifelse(grepl("DMSO|SB50", treatment), "Exp2", "Exp1"),
-    concentration = case_when(
-      grepl("^0ngmlActivin", treatment) & !grepl("DMSO", treatment) ~ "0ngml",
-      grepl("^5ngmlActivin", treatment) ~ "5ngml",
-      grepl("^10ngmlActivin", treatment) ~ "10ngml",
-      grepl("^15ngmlActivin", treatment) & !grepl("DMSO", treatment) ~ "15ngml",
-      grepl("^0ngml.*DMSO", treatment) ~ "0ngml_DMSO",
-      grepl("^15ngml.*DMSO", treatment) ~ "15ngml_DMSO",
-      grepl("^50uMSB50", treatment) ~ "SB50"
-    ),
-    time_min = as.numeric(str_extract(treatment, "\\d+(?=min$)"))
-  )
-
-common <- intersect(colnames(counts_int), rownames(metadata))
-counts_int <- counts_int[, common]
-metadata <- metadata[common, ]
-counts_filt <- counts_int[rowSums(counts_int >= 10) >= 3, ]
+# Rename preprocess counts_filtered to counts_filt for compatibility
+counts_filt <- counts_filtered
 
 # ============================================================================
-# HELPER FUNCTIONS
+# HELPER FUNCTIONS (DE via shared run_deseq from preprocess.R)
 # ============================================================================
 
-run_deseq <- function(test_meta, ref_meta) {
-  combined <- rbind(
-    data.frame(test_meta, group = "test"),
-    data.frame(ref_meta, group = "ref")
-  )
-  combined$group <- factor(combined$group, levels = c("ref", "test"))
-  dds <- DESeqDataSetFromMatrix(counts_filt[, rownames(combined)], combined, ~ group)
-  dds <- DESeq(dds, quiet = TRUE)
-  results(dds, contrast = c("group", "test", "ref")) %>%
-    as.data.frame() %>%
-    rownames_to_column("gene") %>%
-    filter(!is.na(padj)) %>%
-    arrange(padj)
+# Wrapper that calls the shared run_deseq and returns results
+run_deseq_go <- function(test_meta, ref_meta) {
+  run_deseq(test_meta, ref_meta, counts_mat = counts_filt)
 }
 
 run_go_mf <- function(genes, universe = NULL) {
@@ -92,7 +54,7 @@ for (conc in c("5ngml", "10ngml", "15ngml")) {
     name <- paste0(conc, "_", time, "min")
     cat(sprintf("  %s: ", name))
 
-    res <- run_deseq(test, ref)
+    res <- run_deseq_go(test, ref)
     de_genes <- res$gene[res$padj < 0.05 & abs(res$log2FoldChange) >= 1]
     cat(sprintf("%d DE genes -> ", length(de_genes)))
 
@@ -134,7 +96,7 @@ for (time in c(60, 120, 180)) {
   # vs Baseline (0ngml_DMSO)
   name_bl <- paste0("SB50_", time, "min_vs_Baseline")
   cat(sprintf("  %s: ", name_bl))
-  res_bl <- run_deseq(sb50, baseline)
+  res_bl <- run_deseq_go(sb50, baseline)
   de_bl <- res_bl$gene[res_bl$padj < 0.05 & abs(res_bl$log2FoldChange) >= 1]
   cat(sprintf("%d DE -> ", length(de_bl)))
 
@@ -150,7 +112,7 @@ for (time in c(60, 120, 180)) {
   # vs Activin (15ngml_DMSO)
   name_act <- paste0("SB50_", time, "min_vs_Activin")
   cat(sprintf("  %s: ", name_act))
-  res_act <- run_deseq(sb50, activin)
+  res_act <- run_deseq_go(sb50, activin)
   de_act <- res_act$gene[res_act$padj < 0.05 & abs(res_act$log2FoldChange) >= 1]
   cat(sprintf("%d DE -> ", length(de_act)))
 
@@ -166,7 +128,7 @@ for (time in c(60, 120, 180)) {
 
 # Also: Activin vs Baseline
 cat("  Activin_vs_Baseline: ")
-res_act_bl <- run_deseq(activin, baseline)
+res_act_bl <- run_deseq_go(activin, baseline)
 de_act_bl <- res_act_bl$gene[res_act_bl$padj < 0.05 & abs(res_act_bl$log2FoldChange) >= 1]
 cat(sprintf("%d DE -> ", length(de_act_bl)))
 go_act_bl <- run_go_mf(de_act_bl)
@@ -198,8 +160,8 @@ exp1_summary <- exp1_go_df %>%
   group_by(concentration, time_min) %>%
   summarize(n_terms = n(), top_terms = paste(head(Description, 3), collapse = "; "), .groups = "drop")
 writeData(wb1, 2, exp1_summary)
-saveWorkbook(wb1, "exp1_go_mf_results.xlsx", overwrite = TRUE)
-cat("Saved: exp1_go_mf_results.xlsx\n")
+saveWorkbook(wb1, results_path("exp1_go_mf_results.xlsx"), overwrite = TRUE)
+cat("Saved:", results_path("exp1_go_mf_results.xlsx"), "\n")
 
 # Exp2 Excel
 wb2 <- createWorkbook()
@@ -210,8 +172,8 @@ exp2_summary <- exp2_go_df %>%
   group_by(comparison, reference) %>%
   summarize(n_terms = n(), top_terms = paste(head(Description, 3), collapse = "; "), .groups = "drop")
 writeData(wb2, 2, exp2_summary)
-saveWorkbook(wb2, "exp2_go_mf_results.xlsx", overwrite = TRUE)
-cat("Saved: exp2_go_mf_results.xlsx\n")
+saveWorkbook(wb2, results_path("exp2_go_mf_results.xlsx"), overwrite = TRUE)
+cat("Saved:", results_path("exp2_go_mf_results.xlsx"), "\n")
 
 # ============================================================================
 # PLOTS - EXPERIMENT 1
@@ -248,8 +210,8 @@ if (nrow(exp1_go_df) > 0) {
           axis.text.x = element_text(size = 8, angle = 45, hjust = 1),
           legend.position = "right")
 
-  ggsave("exp1_go_mf_dotplot.pdf", p1, width = 12, height = 8)
-  cat("Saved: exp1_go_mf_dotplot.pdf\n")
+  ggsave(results_path("exp1_go_mf_dotplot.pdf"), p1, width = 12, height = 8)
+  cat("Saved:", results_path("exp1_go_mf_dotplot.pdf"), "\n")
 
   # Faceted by concentration
   p1b <- ggplot(plot_df, aes(x = time_min, y = reorder(Description, neg_log_p))) +
@@ -262,8 +224,8 @@ if (nrow(exp1_go_df) > 0) {
     theme(axis.text.y = element_text(size = 7),
           strip.background = element_rect(fill = "gray90"))
 
-  ggsave("exp1_go_mf_faceted.pdf", p1b, width = 14, height = 8)
-  cat("Saved: exp1_go_mf_faceted.pdf\n")
+  ggsave(results_path("exp1_go_mf_faceted.pdf"), p1b, width = 14, height = 8)
+  cat("Saved:", results_path("exp1_go_mf_faceted.pdf"), "\n")
 }
 
 # ============================================================================
@@ -297,8 +259,8 @@ if (nrow(exp2_go_df) > 0) {
     theme(axis.text.y = element_text(size = 8),
           axis.text.x = element_text(size = 9, angle = 45, hjust = 1))
 
-  ggsave("exp2_go_mf_dotplot.pdf", p2, width = 11, height = 8)
-  cat("Saved: exp2_go_mf_dotplot.pdf\n")
+  ggsave(results_path("exp2_go_mf_dotplot.pdf"), p2, width = 11, height = 8)
+  cat("Saved:", results_path("exp2_go_mf_dotplot.pdf"), "\n")
 
   # Split by reference
   p2b <- ggplot(plot_df2 %>% filter(!is.na(time_min)),
@@ -314,11 +276,11 @@ if (nrow(exp2_go_df) > 0) {
     theme(axis.text.y = element_text(size = 7),
           strip.background = element_rect(fill = "gray90"))
 
-  ggsave("exp2_go_mf_faceted.pdf", p2b, width = 12, height = 8)
-  cat("Saved: exp2_go_mf_faceted.pdf\n")
+  ggsave(results_path("exp2_go_mf_faceted.pdf"), p2b, width = 12, height = 8)
+  cat("Saved:", results_path("exp2_go_mf_faceted.pdf"), "\n")
 }
 
 cat("\n=== Done! ===\n")
-cat("Excel files: exp1_go_mf_results.xlsx, exp2_go_mf_results.xlsx\n")
-cat("Plots: exp1_go_mf_dotplot.pdf, exp1_go_mf_faceted.pdf\n")
-cat("       exp2_go_mf_dotplot.pdf, exp2_go_mf_faceted.pdf\n")
+cat("Excel files: results/exp1_go_mf_results.xlsx, results/exp2_go_mf_results.xlsx\n")
+cat("Plots: results/exp1_go_mf_dotplot.pdf, results/exp1_go_mf_faceted.pdf\n")
+cat("       results/exp2_go_mf_dotplot.pdf, results/exp2_go_mf_faceted.pdf\n")
