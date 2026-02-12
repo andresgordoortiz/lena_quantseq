@@ -246,13 +246,12 @@ peak_times <- all_profiles %>%
   )
 write_csv(peak_times, results_path("q4_peak_expression_times.csv"))
 
-# --- Cluster genes into 4 categories by temporal profile ---
+# --- Cluster genes into 3 categories by temporal profile ---
 #
-# Four behaviour classes:
+# Three behaviour classes:
 #   1. Down-regulated: Mean log2FC is negative across most timepoints
-#   2. Time-exposure sensitive: Peak response at early/mid timepoints, declines later
+#   2. Transient activation: Increases then declines (peak before last timepoint)
 #   3. Sustained activation: Steady increase or plateau at high log2FC
-#   4. Other: Mixed or weak patterns
 #
 
 classify_temporal <- function(gene_name, gene_df) {
@@ -263,21 +262,15 @@ classify_temporal <- function(gene_name, gene_df) {
   max_fc <- max(fc)
   min_fc <- min(fc)
   last_fc <- fc[n_tp]
-  peak_idx <- which.max(abs(fc))
+  peak_idx <- which.max(fc)
   peak_fc <- fc[peak_idx]
-
-  # Monotonic increase check
-  diffs <- diff(fc)
-  mostly_up <- sum(diffs > -0.1) >= (n_tp - 2)
 
   if (mean_fc < -0.2 & sum(fc < 0) >= ceiling(n_tp / 2)) {
     return("Down-regulated")
-  } else if (peak_fc > 0.3 & peak_idx < n_tp & last_fc < 0.7 * max_fc) {
-    return("Time-exposure sensitive")
-  } else if (mean_fc > 0.3 & mostly_up) {
-    return("Sustained activation")
+  } else if (peak_fc > 0.2 & peak_idx < n_tp & last_fc < 0.8 * peak_fc) {
+    return("Transient activation")
   } else {
-    return("Other")
+    return("Sustained activation")
   }
 }
 
@@ -287,7 +280,7 @@ gene_clusters <- all_profiles %>%
   ungroup()
 
 gene_clusters$cluster <- factor(gene_clusters$cluster,
-  levels = c("Down-regulated", "Time-exposure sensitive", "Sustained activation", "Other"))
+  levels = c("Down-regulated", "Transient activation", "Sustained activation"))
 
 cat("=== Temporal Behaviour Clusters ===\n")
 for (cl in levels(gene_clusters$cluster)) {
@@ -321,11 +314,12 @@ cluster_ribbon <- cluster_plot_data %>%
   group_by(facet_label, gene_group, time_min) %>%
   summarise(mean_fc = mean(log2fc), sd_fc = sd(log2fc), .groups = "drop")
 
-# Prepare gene-name annotations to display inside each panel
-gene_annotations <- cluster_plot_data %>%
-  distinct(gene, gene_group, facet_label) %>%
-  group_by(facet_label, gene_group) %>%
-  summarise(genes_text = paste(sort(gene), collapse = ", "), .groups = "drop")
+# Label data: gene name at the last timepoint of each trace
+gene_endpoint_labels <- cluster_plot_data %>%
+  filter(time_min == max(time_min))
+
+# Symmetric y-axis: 0 centred, same range for all panels
+y_max <- max(abs(cluster_plot_data$log2fc), na.rm = TRUE) * 1.05
 
 p_clusters <- ggplot(cluster_plot_data, aes(x = time_min, y = log2fc)) +
   # Individual gene traces (thin, transparent)
@@ -336,19 +330,23 @@ p_clusters <- ggplot(cluster_plot_data, aes(x = time_min, y = log2fc)) +
             linewidth = 1.2) +
   geom_point(data = cluster_ribbon,
              aes(y = mean_fc, color = gene_group), size = 2) +
-  # Gene names as text annotation at bottom of each panel
-  geom_text(data = gene_annotations,
-            aes(x = mean(timepoints), y = -Inf, label = genes_text, color = gene_group),
-            vjust = -0.3, size = 2.2, fontface = "italic",
-            position = position_dodge(width = 40), show.legend = FALSE) +
+  # Gene names at end of each trace
+  geom_text_repel(data = gene_endpoint_labels,
+                  aes(label = gene, color = gene_group),
+                  size = 2.5, fontface = "italic",
+                  direction = "y", hjust = 0, nudge_x = 8,
+                  segment.size = 0.2, segment.alpha = 0.4,
+                  max.overlaps = 40, show.legend = FALSE) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "grey50", linewidth = 0.3) +
-  facet_wrap(~ facet_label, scales = "free_y", ncol = 2) +
+  facet_wrap(~ facet_label, ncol = 3) +
   scale_color_manual(values = group_colors, name = NULL) +
-  scale_x_continuous(breaks = timepoints) +
+  scale_x_continuous(breaks = timepoints,
+                     expand = expansion(mult = c(0.05, 0.25))) +
+  scale_y_continuous(limits = c(-y_max, y_max)) +
   labs(
     x = "Time (min)", y = "log2FC (15 vs 0 ng/ml Activin)",
     title = "Temporal behaviour clusters",
-    subtitle = "Experiment 1 – gene expression response over time at 15 ng/ml Activin"
+    subtitle = "Experiment 1 - gene expression response over time at 15 ng/ml Activin"
   ) +
   theme_minimal(base_size = 10) +
   theme(
@@ -359,7 +357,7 @@ p_clusters <- ggplot(cluster_plot_data, aes(x = time_min, y = log2fc)) +
     plot.subtitle = element_text(size = 10, hjust = 0.5, color = "grey50")
   )
 
-ggsave(results_path("q4_temporal_clusters.pdf"), p_clusters, width = 10, height = 8)
+ggsave(results_path("q4_temporal_clusters.pdf"), p_clusters, width = 14, height = 6)
 cat("\nSaved:", results_path("q4_temporal_clusters.pdf"), "\n")
 
 # ============================================================================
@@ -594,7 +592,8 @@ make_overview_panel <- function(data, title_text, title_color) {
     scale_fill_manual(values = chip_fill_colors, name = "ChIP-seq binding",
                       drop = FALSE) +
     scale_size_continuous(range = c(2, 8), name = "|Peak log\u2082FC|") +
-    scale_x_continuous(breaks = timepoints) +
+    scale_x_continuous(breaks = timepoints,
+                       limits = range(timepoints)) +
     scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.25),
                        labels = c("0\n(not reversed)", "0.25", "0.5", "0.75", "1\n(fully reversed)")) +
     labs(x = "Time of peak response (min)", y = "Reversibility (SB50 @ 60 min)",
