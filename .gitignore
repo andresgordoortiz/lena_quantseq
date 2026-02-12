@@ -5,6 +5,8 @@
 *pdf
 *csv
 *tsv
+*txt
+*json
 *xlsx
 *.log
 *.out
