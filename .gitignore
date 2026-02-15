@@ -1,5 +1,4 @@
 /.DS_Store
-/docs
 .Rpro*
 /multiqc
 *pdf
@@ -7,7 +6,6 @@
 *tsv
 *txt
 *json
-*xlsx
 *.log
 *.out
 *.Rproj
