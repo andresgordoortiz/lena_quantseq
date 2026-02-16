@@ -4,6 +4,7 @@
 source("preprocess.R")
 library(pheatmap)
 library(RColorBrewer)
+library(gridExtra)
 
 # Filter to Experiment 1 only
 exp1_metadata <- metadata %>%
@@ -122,29 +123,95 @@ ann_colors <- list(
 group_means_clean <- group_means_ordered[complete.cases(group_means_ordered), , drop = FALSE]
 cat("Genes after removing NA rows:", nrow(group_means_clean), "\n")
 
-pdf(results_path("nodal_heatmap_exp1_averaged.pdf"), width = 10, height = 8, family = "Helvetica")
-pheatmap(
+# ── Prepare per-sample heatmap (individual replicates) ──────────────────────
+# Order samples by time then concentration (same logic as averaged panel)
+sample_order_df <- exp1_metadata %>%
+  filter(time_min %in% c(60, 120, 180, 240)) %>%
+  mutate(conc_order = match(concentration, c("0ngml", "5ngml", "10ngml", "15ngml"))) %>%
+  arrange(time_min, conc_order)
+
+ordered_samples <- intersect(rownames(sample_order_df), colnames(nodal_zscore))
+sample_order_df <- sample_order_df[ordered_samples, ]
+
+# Subset z-scores to the same genes used in the averaged panel
+nodal_zscore_clean <- nodal_zscore[rownames(group_means_clean), ordered_samples, drop = FALSE]
+
+# Per-sample column annotation
+annotation_col_samples <- data.frame(
+  time_min = factor(sample_order_df$time_min),
+  concentration = factor(sample_order_df$concentration,
+                         levels = c("0ngml", "5ngml", "10ngml", "15ngml")),
+  row.names = rownames(sample_order_df)
+)
+
+# ── Get row order from the averaged heatmap (cluster once, reuse) ───────────
+hm_avg <- pheatmap(
   group_means_clean,
-  annotation_col = annotation_col,
-  annotation_colors = ann_colors,
   cluster_cols = FALSE,
   cluster_rows = TRUE,
   clustering_distance_rows = "euclidean",
   clustering_method = "complete",
+  silent = TRUE
+)
+row_order <- hm_avg$tree_row$order
+
+# ── Plot 1: Per-sample heatmap (individual replicates) ──────────────────────
+# Calculate PDF dimensions from data (cellwidth/height are in points = 1/72 inch)
+n_genes <- nrow(nodal_zscore_clean)
+n_samples_plot <- ncol(nodal_zscore_clean)
+n_groups_plot <- ncol(group_means_clean)
+
+pdf_w_samples <- n_samples_plot * 8 / 72 + 3   # cells + rownames + legend + margins
+pdf_h_samples <- n_genes * 10 / 72 + 1.5        # cells + annotation + margins
+pdf_w_groups  <- n_groups_plot * 12 / 72 + 3
+pdf_h_groups  <- n_genes * 10 / 72 + 1.5
+
+pdf(results_path("nodal_heatmap_exp1_averaged.pdf"), width = pdf_w_samples, height = pdf_h_samples, family = "Helvetica")
+pheatmap(
+  nodal_zscore_clean[row_order, , drop = FALSE],
+  annotation_col = annotation_col_samples,
+  annotation_colors = ann_colors,
+  cluster_cols = FALSE,
+  cluster_rows = FALSE,
   show_rownames = TRUE,
-  show_colnames = FALSE,  # Cleaner without individual column labels
-  annotation_names_col = FALSE,  # Cleaner annotation
+  show_colnames = FALSE,
+  annotation_names_col = FALSE,
   color = heatmap_colors,
   breaks = seq(-2.5, 2.5, length.out = 101),
-  border_color = NA,  # No borders for cleaner look
+  border_color = NA,
   fontsize = 10,
   fontsize_row = 9,
-  main = "",  # No title for cleaner look
+  main = "",
+  annotation_legend = TRUE,
+  legend = TRUE,
+  cellwidth = 8,
+  cellheight = 10,
+  treeheight_row = 0
+)
+dev.off()
+
+# ── Plot 2: Averaged heatmap (aggregated by condition) ─────────────────────
+pdf(results_path("nodal_heatmap_exp1_aggregated.pdf"), width = pdf_w_groups, height = pdf_h_groups, family = "Helvetica")
+pheatmap(
+  group_means_clean[row_order, , drop = FALSE],
+  annotation_col = annotation_col,
+  annotation_colors = ann_colors,
+  cluster_cols = FALSE,
+  cluster_rows = FALSE,
+  show_rownames = TRUE,
+  show_colnames = FALSE,
+  annotation_names_col = FALSE,
+  color = heatmap_colors,
+  breaks = seq(-2.5, 2.5, length.out = 101),
+  border_color = NA,
+  fontsize = 10,
+  fontsize_row = 9,
+  main = "",
   annotation_legend = TRUE,
   legend = TRUE,
   cellwidth = 12,
   cellheight = 10,
-  treeheight_row = 30
+  treeheight_row = 0
 )
 dev.off()
 
