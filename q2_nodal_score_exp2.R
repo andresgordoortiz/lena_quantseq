@@ -139,9 +139,24 @@ annot <- pairwise %>%
     bar_x = n_nodal * 1.02  # All bars at same x, just past the lines
   )
 
+# Per-sample long data for dot overlay
+sample_condition_map <- data.frame(
+  sample_id = rownames(metadata_q2),
+  condition = metadata_q2$condition,
+  stringsAsFactors = FALSE
+)
+
+cumsum_long <- as.data.frame(cumsum_mat) %>%
+  mutate(gene_rank = 1:n_nodal) %>%
+  pivot_longer(-gene_rank, names_to = "sample_id", values_to = "cumsum") %>%
+  left_join(sample_condition_map, by = "sample_id") %>%
+  mutate(condition = factor(condition, levels = conditions))
+
 # Plot
 p <- ggplot(cumsum_stats, aes(x = gene_rank, y = mean, color = condition, fill = condition)) +
-  geom_ribbon(aes(ymin = mean - sd, ymax = mean + sd), alpha = 0.2, color = NA) +
+  geom_ribbon(aes(ymin = mean - sd, ymax = mean + sd), alpha = 0.15, color = NA) +
+  geom_point(data = cumsum_long, aes(x = gene_rank, y = cumsum, color = condition),
+             size = 0.6, alpha = 0.35, shape = 16, inherit.aes = FALSE) +
   geom_line(linewidth = 1) +
   scale_color_manual(values = cond_colors, labels = cond_labels, name = "") +
   scale_fill_manual(values = cond_colors, labels = cond_labels, name = "") +
