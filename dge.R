@@ -26,6 +26,9 @@ simple_metadata<-data.frame(sample=paste0("S",samples$requests_sample_sample_id)
                             experiment=ifelse(grepl("DMSO", clean_treatments) | grepl("SB50", clean_treatments)
                                               , 2,1))
 
+# Exclude outlier sample S343239 (SB50 60 min) — confirmed technical failure
+simple_metadata <- simple_metadata[simple_metadata$sample != "S343239", ]
+
 # Function to extract concentration and time from treatment names
 extract_concentration_time <- function(treatment) {
   # Extract concentration (ng/ml for Activin, uM for SB50)
