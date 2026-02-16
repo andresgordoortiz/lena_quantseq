@@ -174,15 +174,18 @@ if(nrow(exp2_all) >= 2) {
     )
 
     pdf(results_path("nodal_score_heatmap_exp2.pdf"), width = 12, height = 10)
-    pheatmap(nodal_zscore,
-             annotation_col = annotation_col,
-             cluster_cols = TRUE,
-             cluster_rows = TRUE,
-             show_rownames = TRUE,
-             show_colnames = FALSE,
-             main = "Nodal Score Genes - Experiment 2",
-             fontsize_row = 6)
-    dev.off()
+    tryCatch(
+      pheatmap(nodal_zscore,
+               annotation_col = annotation_col,
+               cluster_cols = TRUE,
+               cluster_rows = TRUE,
+               show_rownames = TRUE,
+               show_colnames = FALSE,
+               main = "Nodal Score Genes - Experiment 2",
+               fontsize_row = 6),
+      error = function(e) message("Heatmap error: ", e$message),
+      finally = dev.off()
+    )
     cat("\nHeatmap saved:", results_path("nodal_score_heatmap_exp2.pdf"), "\n")
   }
 
@@ -301,14 +304,19 @@ pca_data <- plotPCA(vsd, intgroup = c("experiment", "concentration"), returnData
 percentVar <- round(100 * attr(pca_data, "percentVar"))
 
 pdf(results_path("pca_all_samples.pdf"), width = 10, height = 8)
-ggplot(pca_data, aes(x = PC1, y = PC2, color = concentration, shape = experiment)) +
-  geom_point(size = 3) +
-  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
-  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
-  theme_bw() +
-  ggtitle("PCA - All Samples") +
-  theme(legend.position = "right")
-dev.off()
+tryCatch(
+  print(
+    ggplot(pca_data, aes(x = PC1, y = PC2, color = concentration, shape = experiment)) +
+      geom_point(size = 3) +
+      xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+      ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+      theme_bw() +
+      ggtitle("PCA - All Samples") +
+      theme(legend.position = "right")
+  ),
+  error = function(e) message("Plot error: ", e$message),
+  finally = dev.off()
+)
 cat("Saved:", results_path("pca_all_samples.pdf"), "\n")
 
 # Volcano plots for key comparisons
@@ -343,23 +351,27 @@ if(exists("res_exp2_df")) {
 # Nodal score barplot
 if(exists("exp2_all") && "nodal_score" %in% colnames(exp2_all)) {
   pdf(results_path("nodal_score_barplot.pdf"), width = 8, height = 6)
-  nodal_plot_data <- exp2_all %>%
-    group_by(concentration) %>%
-    summarise(
-      mean = mean(nodal_score, na.rm = TRUE),
-      se = sd(nodal_score, na.rm = TRUE) / sqrt(n()),
-      .groups = "drop"
-    )
+  tryCatch({
+    nodal_plot_data <- exp2_all %>%
+      group_by(concentration) %>%
+      summarise(
+        mean = mean(nodal_score, na.rm = TRUE),
+        se = sd(nodal_score, na.rm = TRUE) / sqrt(n()),
+        .groups = "drop"
+      )
 
-  p <- ggplot(nodal_plot_data, aes(x = reorder(concentration, -mean), y = mean)) +
-    geom_bar(stat = "identity", fill = "steelblue") +
-    geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0.2) +
-    theme_bw() +
-    labs(x = "Condition", y = "Nodal Score (mean z-score)",
-         title = "Nodal Score by Condition (Exp2)") +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
-  print(p)
-  dev.off()
+    p <- ggplot(nodal_plot_data, aes(x = reorder(concentration, -mean), y = mean)) +
+      geom_bar(stat = "identity", fill = "steelblue") +
+      geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0.2) +
+      theme_bw() +
+      labs(x = "Condition", y = "Nodal Score (mean z-score)",
+           title = "Nodal Score by Condition (Exp2)") +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    print(p)
+  },
+  error = function(e) message("Plot error: ", e$message),
+  finally = dev.off()
+  )
   cat("Saved:", results_path("nodal_score_barplot.pdf"), "\n")
 }
 

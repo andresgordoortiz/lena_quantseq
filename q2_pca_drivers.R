@@ -315,14 +315,16 @@ p_combined <- p_exp1 + p_biplot +
   )
 
 pdf(results_path("pca_combined.pdf"), width = 14, height = 6.5, family = "Helvetica")
-print(p_combined)
-dev.off()
+tryCatch(print(p_combined),
+         error = function(e) message("Plot error: ", e$message),
+         finally = dev.off())
 cat("Saved:", results_path("pca_combined.pdf"), "\n")
 
 # -- Also save standalone biplot --
 pdf(results_path("q2_pca_biplot.pdf"), width = 8, height = 6.5, family = "Helvetica")
-print(p_biplot)
-dev.off()
+tryCatch(print(p_biplot),
+         error = function(e) message("Plot error: ", e$message),
+         finally = dev.off())
 cat("Saved:", results_path("q2_pca_biplot.pdf"), "\n")
 
 # ============================================================================
@@ -369,8 +371,9 @@ if (nrow(go_combined_full) > 0) {
   pdf_h <- max(6, nrow(go_combined_full) * 0.3 + 3)
   pdf(results_path("q2_pca_drivers_go_all.pdf"), width = 9, height = pdf_h,
       family = "Helvetica")
-  print(p_go_all)
-  dev.off()
+  tryCatch(print(p_go_all),
+           error = function(e) message("Plot error: ", e$message),
+           finally = dev.off())
   cat("Saved:", results_path("q2_pca_drivers_go_all.pdf"), "\n")
 }
 

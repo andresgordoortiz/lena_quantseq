@@ -121,12 +121,14 @@ p_with_outlier <- ggplot(cumsum_stats_all, aes(x = gene_rank, y = mean, color = 
   )
 
 pdf(results_path("q2_nodal_score_cumulative_with_outlier.pdf"), width = 10, height = 7, family = "Helvetica")
-print(p_with_outlier)
-dev.off()
+tryCatch(print(p_with_outlier),
+         error = function(e) message("Plot error: ", e$message),
+         finally = dev.off())
 
 png(results_path("q2_nodal_score_cumulative_with_outlier.png"), width = 10, height = 5, units = "in", res = 300)
-print(p_with_outlier)
-dev.off()
+tryCatch(print(p_with_outlier),
+         error = function(e) message("Plot error: ", e$message),
+         finally = dev.off())
 cat("Saved:", results_path("q2_nodal_score_cumulative_with_outlier.pdf"), "\n")
 
 # Clean up "with outlier" intermediates
@@ -353,12 +355,14 @@ for(i in seq_len(nrow(annot))) {
 
 # Save
 pdf(results_path("q2_nodal_score_cumulative.pdf"), width = 10, height = 7, family = "Helvetica")
-print(p)
-dev.off()
+tryCatch(print(p),
+         error = function(e) message("Plot error: ", e$message),
+         finally = dev.off())
 
 png(results_path("q2_nodal_score_cumulative.png"), width = 10, height = 5, units = "in", res = 300)
-print(p)
-dev.off()
+tryCatch(print(p),
+         error = function(e) message("Plot error: ", e$message),
+         finally = dev.off())
 
 write_csv(final_cumsum_per_sample, results_path("q2_nodal_scores_per_sample.csv"))
 cat("\nSaved:", results_path("q2_nodal_score_cumulative.pdf"), "\n")

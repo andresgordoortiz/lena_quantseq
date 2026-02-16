@@ -149,7 +149,7 @@ if (nrow(exp1_go_df) > 0) {
       size = guide_legend(order = 2, override.aes = list(fill = "grey50"))
     )
 
-  ggsave(results_path("exp1_go_mf_publication.pdf"), p_exp1_combined, width = 13, height = 6, device = cairo_pdf)
+  ggsave(results_path("exp1_go_mf_publication.pdf"), p_exp1_combined, width = 13, height = 6)
   cat("Saved:", results_path("exp1_go_mf_publication.pdf"), "\n")
 }
 
@@ -266,7 +266,7 @@ if (nrow(exp2_go_df) > 0) {
       size = guide_legend(order = 2, override.aes = list(fill = "grey50"))
     )
 
-  ggsave(results_path("exp2_go_mf_publication.pdf"), p_exp2, width = 11, height = 6, device = cairo_pdf)
+  ggsave(results_path("exp2_go_mf_publication.pdf"), p_exp2, width = 11, height = 6)
   cat("Saved:", results_path("exp2_go_mf_publication.pdf"), "\n")
 }
 

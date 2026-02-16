@@ -131,57 +131,11 @@ print(as.data.frame(nodal_chip_summary), row.names = FALSE)
 write_csv(candidate_chip_summary, results_path("q4_chipseq_candidates.csv"))
 write_csv(nodal_chip_summary, results_path("q4_chipseq_nodal.csv"))
 
-# --- FIGURE 1: ChIP-seq binding heatmap ---
-
-chip_plot_data <- bind_rows(
-  candidate_chip_summary %>% mutate(gene_group = "Candidate"),
-  nodal_chip_summary %>% mutate(gene_group = "Nodal score")
-) %>%
-  pivot_longer(
-    cols = c(Smad2_bound, EomesA_bound, Foxh1_at_Smad2, Foxh1_at_EomesA),
-    names_to = "feature", values_to = "present"
-  ) %>%
-  mutate(
-    feature = case_when(
-      feature == "Smad2_bound" ~ "Smad2",
-      feature == "EomesA_bound" ~ "EomesA",
-      feature == "Foxh1_at_Smad2" ~ "Foxh1 motif\n(Smad2 peak)",
-      feature == "Foxh1_at_EomesA" ~ "Foxh1 motif\n(EomesA peak)"
-    ),
-    feature = factor(feature, levels = c("Smad2", "Foxh1 motif\n(Smad2 peak)",
-                                         "EomesA", "Foxh1 motif\n(EomesA peak)")),
-    gene = factor(gene, levels = rev(unique(c(
-      sort(candidate_genes[candidate_genes %in% gene]),
-      sort(nodal_genes[nodal_genes %in% gene])
-    ))))
-  )
-
-p_chip <- ggplot(chip_plot_data, aes(x = feature, y = gene)) +
-  geom_tile(aes(fill = present), color = "white", linewidth = 0.5) +
-  scale_fill_manual(
-    values = c("TRUE" = "#2166AC", "FALSE" = "#F0F0F0"),
-    labels = c("TRUE" = "Bound", "FALSE" = "Not bound"),
-    name = ""
-  ) +
-  facet_grid(gene_group ~ ., scales = "free_y", space = "free_y") +
-  labs(
-    x = "", y = "",
-    title = "ChIP-seq binding evidence",
-    subtitle = "Smad2 & EomesA peaks ± Foxh1 motif (Nelson et al. 2014)"
-  ) +
-  theme_minimal(base_size = 10) +
-  theme(
-    panel.grid = element_blank(),
-    axis.text.x = element_text(size = 9, angle = 45, hjust = 1),
-    axis.text.y = element_text(size = 8, face = "italic"),
-    strip.text.y = element_text(size = 10, face = "bold", angle = 0),
-    legend.position = "bottom",
-    plot.title = element_text(size = 12, face = "bold"),
-    plot.subtitle = element_text(size = 9, color = "grey50")
-  )
-
-ggsave(results_path("q4_chipseq_binding_heatmap.pdf"), p_chip, width = 6, height = 12)
-cat("\nSaved:", results_path("q4_chipseq_binding_heatmap.pdf"), "\n")
+# NOTE: The ChIP-seq binding heatmap is now generated in q4_extended_analysis.R
+# as two focused figures:
+#   - q4_chipseq_nodal_candidates.pdf  (Nodal score + Candidate genes)
+#   - q4_chipseq_dusp_fgf.pdf          (DUSP + FGF pathway genes)
+# The old single heatmap (q4_chipseq_binding_heatmap.pdf) is superseded.
 
 # ============================================================================
 # PART 2: Temporal Dynamics & Behaviour Clustering

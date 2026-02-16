@@ -133,11 +133,11 @@ data_120 <- get_blocking_data(res_activin_vs_baseline, res_sb50_120_vs_baseline,
 data_180 <- get_blocking_data(res_activin_vs_baseline, res_sb50_180_vs_baseline, 180)
 
 cat("\n=== BLOCKING SUMMARY ===\n")
-cat("(SB50 timepoint = when SB50 was added; longer time = SB50 present longer)\n\n")
+cat("(SB50 timepoint = when activin was severed; earlier SB50 = shorter activin exposure)\n\n")
 for (d in list(list(data_60, 60), list(data_120, 120), list(data_180, 180))) {
   dat <- d[[1]]; tp <- d[[2]]
   n_activin <- sum(dat$activin_sig)
-  cat(sprintf("SB50 added at %dmin (present for %dmin):\n", tp, 240 - tp))
+  cat(sprintf("SB50 at %dmin (activin active for %dmin):\n", tp, tp))
   cat(sprintf("  Activin-responsive genes: %d\n", n_activin))
   cat(sprintf("  Blocked: %d (%.0f%%)\n", sum(dat$category == "Blocked"),
               100 * sum(dat$category == "Blocked") / max(1, n_activin)))
@@ -183,7 +183,7 @@ make_scatter_plot <- function(data, timepoint) {
     ) +
     labs(
       title = sprintf("SB50 added at %dmin", timepoint),
-      subtitle = sprintf("(SB50 present for %dmin)", sb50_duration),
+      subtitle = sprintf("(Activin active for %dmin)", timepoint),
       x = "Activin effect (log2FC)",
       y = "SB50+Activin effect (log2FC)",
       color = NULL
@@ -248,8 +248,8 @@ p_bar <- ggplot(prop_data, aes(x = timepoint, y = pct, fill = category)) +
   scale_x_discrete(labels = c("60" = "60min", "120" = "120min", "180" = "180min")) +
   scale_y_continuous(expand = c(0, 0), limits = c(0, 100)) +
   labs(
-    title = "Category proportions",
-    x = "SB50 added at",
+    title = "Blocking by activin exposure time",
+    x = "Activin exposure",
     y = "% of DE genes",
     fill = NULL
   ) +
@@ -276,8 +276,8 @@ p_bar_wrapped <- p_bar +
 combined_fig <- (p_scatter_60 + p_scatter_120) / (p_scatter_180 + p_bar_wrapped) +
   plot_layout(widths = c(1, 1), heights = c(1, 1)) +
   plot_annotation(
-    title = "SB50 blocking Activin genes",
-    subtitle = "All comparisons vs baseline (0ngml_DMSO). X = Activin effect, Y = SB50+Activin effect",
+    title = "SB50 blocking of Activin-induced genes",
+    subtitle = "SB50 severs activin at administration time; all collected at 240 min. X = Activin effect, Y = SB50+Activin effect",
     theme = theme(
       plot.title = element_text(size = 20, face = "bold", hjust = 0.5),
       plot.subtitle = element_text(size = 9, hjust = 0.5, color = "grey40")

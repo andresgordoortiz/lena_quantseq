@@ -309,12 +309,14 @@ for (name in names(results)) {
     )
 
   pdf(results_path(paste0(fname_base, ".pdf")), width = 10, height = 7, family = "Helvetica")
-  print(p_titled)
-  dev.off()
+  tryCatch(print(p_titled),
+           error = function(e) message("Plot error: ", e$message),
+           finally = dev.off())
 
   png(results_path(paste0(fname_base, ".png")), width = 10, height = 5, units = "in", res = 300)
-  print(p_titled)
-  dev.off()
+  tryCatch(print(p_titled),
+           error = function(e) message("Plot error: ", e$message),
+           finally = dev.off())
 
   write_csv(res$stats, results_path(paste0(fname_base, "_stats.csv")))
   write_csv(res$final_scores, results_path(paste0(fname_base, "_per_sample.csv")))
@@ -357,12 +359,14 @@ if (length(valid_results) >= 2) {
   final_panel <- combined / legend_grob + plot_layout(heights = c(20, 1))
 
   pdf(results_path("q4_fgf_scores_combined.pdf"), width = 14, height = 12, family = "Helvetica")
-  print(final_panel)
-  dev.off()
+  tryCatch(print(final_panel),
+           error = function(e) message("Plot error: ", e$message),
+           finally = dev.off())
 
   png(results_path("q4_fgf_scores_combined.png"), width = 14, height = 12, units = "in", res = 300)
-  print(final_panel)
-  dev.off()
+  tryCatch(print(final_panel),
+           error = function(e) message("Plot error: ", e$message),
+           finally = dev.off())
 
   cat("\nSaved:", results_path("q4_fgf_scores_combined.pdf/png"), "\n")
 }

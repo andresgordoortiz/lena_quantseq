@@ -167,53 +167,78 @@ pdf_w_groups  <- n_groups_plot * 12 / 72 + 3
 pdf_h_groups  <- n_genes * 10 / 72 + 1.5
 
 pdf(results_path("nodal_heatmap_exp1_averaged.pdf"), width = pdf_w_samples, height = pdf_h_samples, family = "Helvetica")
-pheatmap(
-  nodal_zscore_clean[row_order, , drop = FALSE],
-  annotation_col = annotation_col_samples,
-  annotation_colors = ann_colors,
-  cluster_cols = FALSE,
-  cluster_rows = FALSE,
-  show_rownames = TRUE,
-  show_colnames = FALSE,
-  annotation_names_col = FALSE,
-  color = heatmap_colors,
-  breaks = seq(-2.5, 2.5, length.out = 101),
-  border_color = NA,
-  fontsize = 10,
-  fontsize_row = 9,
-  main = "",
-  annotation_legend = TRUE,
-  legend = TRUE,
-  cellwidth = 8,
-  cellheight = 10,
-  treeheight_row = 0
+tryCatch(
+  pheatmap(
+    nodal_zscore_clean[row_order, , drop = FALSE],
+    annotation_col = annotation_col_samples,
+    annotation_colors = ann_colors,
+    cluster_cols = FALSE,
+    cluster_rows = FALSE,
+    show_rownames = TRUE,
+    show_colnames = FALSE,
+    annotation_names_col = FALSE,
+    color = heatmap_colors,
+    breaks = seq(-2.5, 2.5, length.out = 101),
+    border_color = NA,
+    fontsize = 10,
+    fontsize_row = 9,
+    main = "",
+    annotation_legend = TRUE,
+    legend = TRUE,
+    cellwidth = 8,
+    cellheight = 10,
+    treeheight_row = 0
+  ),
+  error = function(e) message("Heatmap error: ", e$message),
+  finally = dev.off()
 )
-dev.off()
 
 # ── Plot 2: Averaged heatmap (aggregated by condition) ─────────────────────
-pdf(results_path("nodal_heatmap_exp1_aggregated.pdf"), width = pdf_w_groups, height = pdf_h_groups, family = "Helvetica")
-pheatmap(
-  group_means_clean[row_order, , drop = FALSE],
-  annotation_col = annotation_col,
-  annotation_colors = ann_colors,
-  cluster_cols = FALSE,
-  cluster_rows = FALSE,
-  show_rownames = TRUE,
-  show_colnames = FALSE,
-  annotation_names_col = FALSE,
-  color = heatmap_colors,
-  breaks = seq(-2.5, 2.5, length.out = 101),
-  border_color = NA,
-  fontsize = 10,
-  fontsize_row = 9,
-  main = "",
-  annotation_legend = TRUE,
-  legend = TRUE,
-  cellwidth = 12,
-  cellheight = 10,
-  treeheight_row = 0
+# Ensure annotation_col rownames exactly match group_means_clean columns
+annotation_col_agg <- annotation_col[colnames(group_means_clean), , drop = FALSE]
+annotation_col_agg <- annotation_col_agg[complete.cases(annotation_col_agg), , drop = FALSE]
+# Drop unused factor levels
+annotation_col_agg$time_min <- droplevels(annotation_col_agg$time_min)
+annotation_col_agg$concentration <- droplevels(annotation_col_agg$concentration)
+
+# Subset ann_colors to only present levels
+ann_colors_agg <- list(
+  time_min = ann_colors$time_min[levels(annotation_col_agg$time_min)],
+  concentration = ann_colors$concentration[levels(annotation_col_agg$concentration)]
 )
-dev.off()
+
+# Subset data to columns that have valid annotations
+valid_groups <- rownames(annotation_col_agg)
+group_data <- group_means_clean[row_order, valid_groups, drop = FALSE]
+
+cat("Aggregated heatmap: ", nrow(group_data), " genes x ", ncol(group_data), " groups\n")
+
+pdf(results_path("nodal_heatmap_exp1_aggregated.pdf"), width = pdf_w_groups, height = pdf_h_groups, family = "Helvetica")
+tryCatch(
+  pheatmap(
+    group_data,
+    annotation_col = annotation_col_agg,
+    annotation_colors = ann_colors_agg,
+    cluster_cols = FALSE,
+    cluster_rows = FALSE,
+    show_rownames = TRUE,
+    show_colnames = FALSE,
+    annotation_names_col = FALSE,
+    color = heatmap_colors,
+    breaks = seq(-2.5, 2.5, length.out = 101),
+    border_color = NA,
+    fontsize = 10,
+    fontsize_row = 9,
+    main = "",
+    annotation_legend = TRUE,
+    legend = TRUE,
+    cellwidth = 12,
+    cellheight = 10,
+    treeheight_row = 0
+  ),
+  error = function(e) message("Heatmap error (aggregated): ", e$message),
+  finally = dev.off()
+)
 
 # Save the averaged z-score matrix
 #write_csv(group_means_clean %>% rownames_to_column("gene"))
