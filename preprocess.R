@@ -79,6 +79,20 @@ common_samples <- intersect(colnames(counts_int), rownames(metadata))
 counts_int <- counts_int[, common_samples]
 metadata <- metadata[common_samples, ]
 
+# ── Exclude outlier S343239 (SB50 60 min) ────────────────────────────────────
+# Confirmed outlier: near-zero nodal gene expression, cumulative nodal score
+# below lowest control sample. Likely sample swap or technical failure.
+OUTLIER_SAMPLES <- c("S343239")
+
+# Keep full copies for PCA (which shows the outlier to justify its removal)
+metadata_all  <- metadata
+counts_int_all <- counts_int
+
+metadata <- metadata[!rownames(metadata) %in% OUTLIER_SAMPLES, ]
+counts_int <- counts_int[, rownames(metadata)]
+cat(sprintf("  Excluded %d outlier sample(s): %s\n",
+            length(OUTLIER_SAMPLES), paste(OUTLIER_SAMPLES, collapse = ", ")))
+
 keep <- rowSums(counts_int >= 10) >= 3
 counts_filtered <- counts_int[keep, ]
 
