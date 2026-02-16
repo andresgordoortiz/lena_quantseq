@@ -479,137 +479,9 @@ if (!is.null(rev_all) && "rev_120" %in% colnames(rev_all)) {
   }
 }
 
-# ============================================================================
-# 5. CELL MIGRATION & CELL ADHESION DEGs — TEMPORAL PATTERNS (2 SEPARATE PLOTS)
-# ============================================================================
-#
-# Gene selection: intersect GO-annotated genes with shared DEGs from Q1.
-# Two separate GO categories produce two separate figures:
-#   - Cell migration:  GO:0016477 (cell migration), GO:0030334 (regulation
-#                      of cell migration), GO:0040011 (locomotion)
-#   - Cell adhesion:   GO:0007155 (cell adhesion)
-#
-
-cat("\n========== CELL MIGRATION & ADHESION DEGs ==========\n")
-
-# Helper: query GO terms → gene symbols → intersect with shared DEGs
-get_go_degs <- function(go_ids, label) {
-  entrez <- tryCatch({
-    AnnotationDbi::select(org.Dr.eg.db, keys = go_ids,
-                           columns = "ENTREZID", keytype = "GOALL")$ENTREZID
-  }, error = function(e) character(0))
-  if (length(entrez) == 0) return(character(0))
-  symbols <- AnnotationDbi::select(org.Dr.eg.db,
-    keys = unique(entrez), columns = "SYMBOL", keytype = "ENTREZID")$SYMBOL
-  symbols <- unique(na.omit(symbols))
-
-  if (file.exists(results_path("q1_shared_de_genes.csv"))) {
-    shared_degs <- read_csv(results_path("q1_shared_de_genes.csv"), show_col_types = FALSE)
-    degs <- intersect(shared_degs$gene, symbols)
-  } else {
-    degs <- intersect(symbols, rownames(counts_filtered))
-  }
-  cat(sprintf("  %s: %d GO genes in dataset, %d shared DEGs\n",
-              label, length(symbols), length(degs)))
-  degs
-}
-
-migration_degs <- get_go_degs(
-  c("GO:0016477", "GO:0030334", "GO:0040011"),  # migration + regulation + locomotion
-  "Cell migration"
-)
-adhesion_degs <- get_go_degs(
-  c("GO:0007155"),  # cell adhesion
-  "Cell adhesion"
-)
-
-# Remove adhesion genes that overlap with migration (keep them clean)
-adhesion_only <- setdiff(adhesion_degs, migration_degs)
-cat(sprintf("  Adhesion-only (excluding migration overlap): %d\n", length(adhesion_only)))
-
-# — Plotting helper (reusable for both categories) —
-make_temporal_plot <- function(deg_list, label, color_up, color_down,
-                               out_pdf, out_csv) {
-  if (length(deg_list) < 3) {
-    cat(sprintf("  Skipping %s plot: only %d genes\n", label, length(deg_list)))
-    return(invisible(NULL))
-  }
-
-  profiles <- compute_temporal_profile(
-    tolower(deg_list), norm_exp1, exp1_15ngml, exp1_0ngml, timepoints
-  ) %>% mutate(gene_family = label)
-
-  write_csv(profiles, out_csv)
-
-  direction_df <- profiles %>%
-    group_by(gene) %>%
-    summarise(mean_fc = mean(log2fc), .groups = "drop") %>%
-    mutate(direction = ifelse(mean_fc >= 0, "Upregulated", "Downregulated"))
-
-  profiles <- profiles %>%
-    left_join(direction_df %>% dplyr::select(gene, direction), by = "gene")
-
-  dir_means <- profiles %>%
-    group_by(direction, time_min) %>%
-    summarise(mean_fc = mean(log2fc), .groups = "drop")
-
-  endpoints <- profiles %>% filter(time_min == max(time_min))
-  n_up   <- sum(direction_df$direction == "Upregulated")
-  n_down <- sum(direction_df$direction == "Downregulated")
-
-  dir_colors <- c("Upregulated" = color_up, "Downregulated" = color_down)
-
-  p <- ggplot(profiles, aes(x = time_min, y = log2fc)) +
-    geom_hline(yintercept = 0, linetype = "dashed", color = "grey50", linewidth = 0.3) +
-    geom_line(aes(group = gene, color = direction), alpha = 0.25, linewidth = 0.3) +
-    geom_line(data = dir_means, aes(y = mean_fc, color = direction),
-              linewidth = 1.4) +
-    geom_point(data = dir_means, aes(y = mean_fc, color = direction), size = 2.5) +
-    geom_text_repel(data = endpoints,
-                    aes(label = gene, color = direction), size = 2,
-                    fontface = "italic", direction = "y", hjust = 0,
-                    nudge_x = 8, segment.size = 0.2, max.overlaps = 30,
-                    show.legend = FALSE) +
-    facet_wrap(~ direction, ncol = 2, scales = "free_y") +
-    scale_color_manual(values = dir_colors, guide = "none") +
-    scale_x_continuous(breaks = timepoints, expand = expansion(mult = c(0.05, 0.25))) +
-    labs(x = "Time (min)", y = "log2FC (15 vs 0 ng/ml Activin)",
-         title = paste0(label, " DEGs — temporal response"),
-         subtitle = sprintf("n = %d shared DEGs (%d up, %d down)",
-                            length(deg_list), n_up, n_down)) +
-    theme_minimal(base_size = 11, base_family = "Helvetica") +
-    theme(
-      panel.grid.minor = element_blank(),
-      panel.border = element_rect(color = "grey50", fill = NA, linewidth = 0.6),
-      strip.text = element_text(size = 12, face = "bold"),
-      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
-      plot.subtitle = element_text(size = 10, hjust = 0.5, color = "grey50")
-    )
-
-  ggsave(out_pdf, p, width = 12, height = 7)
-  cat("Saved:", out_pdf, "\n")
-  invisible(p)
-}
-
-# Plot 1: Cell migration
-make_temporal_plot(
-  migration_degs, "Cell migration",
-  color_up = "#D73027", color_down = "#4575B4",
-  out_pdf = results_path("q4_migration_degs_temporal.pdf"),
-  out_csv = results_path("q4_migration_degs_temporal.csv")
-)
-
-# Plot 2: Cell adhesion
-make_temporal_plot(
-  adhesion_only, "Cell adhesion",
-  color_up = "#E66101", color_down = "#5E3C99",
-  out_pdf = results_path("q4_adhesion_degs_temporal.pdf"),
-  out_csv = results_path("q4_adhesion_degs_temporal.csv")
-)
-
-# Gene lists for reference
-write_csv(data.frame(gene = migration_degs), results_path("q4_migration_degs_list.csv"))
-write_csv(data.frame(gene = adhesion_only), results_path("q4_adhesion_degs_list.csv"))
+# NOTE: Section 5 (Cell migration & adhesion DEG temporal plots) was removed.
+# This analysis is now handled by q5_motility_commitment.R, which adds
+# SB50 blocking/commitment analysis on top of the temporal expression data.
 
 # NOTE: Section 6 (FGF signaling ChIP-seq heatmap) was removed.
 # Its content is now fully covered by the combined DUSP+FGF heatmap
@@ -651,6 +523,5 @@ cat("  - q4_gene_families_temporal.pdf (FGF feedback/DUSP/mesoderm/ligands/recep
 cat("  - q4_family_temporal_profiles.csv\n")
 cat("  - q4_reversibility_classified.csv\n")
 cat("  - q4_integrated_overview_120min.pdf\n")
-cat("  - q4_migration_degs_temporal.pdf + csv (cell migration DEGs)\n")
-cat("  - q4_adhesion_degs_temporal.pdf + csv (cell adhesion DEGs)\n")
 cat("  - q4_fgf_score_literature_temporal.csv\n")
+cat("  (Cell migration/adhesion analysis moved to q5_motility_commitment.R)\n")
