@@ -1,7 +1,146 @@
 # Question 2: Nodal Score - Cumulative Expression with Variance Ribbons
 # Publication-ready figure for LaTeX (Helvetica)
+#
+# This script produces TWO versions:
+#   1. WITH outlier S343239 — to justify its removal
+#   2. WITHOUT outlier — the definitive analysis with permutation tests
+#
 
 source("preprocess.R")
+library(ggrepel)
+
+# ============================================================================
+# PART A: NODAL SCORE WITH OUTLIER (for diagnostic purposes)
+# ============================================================================
+# Uses metadata_all / counts_int_all (from preprocess.R) — outlier included
+
+cat("\n========== NODAL SCORE (WITH OUTLIER S343239) ==========\n")
+
+metadata_q2_all <- metadata_all %>%
+  mutate(
+    condition = case_when(
+      concentration == "0ngml_DMSO"  ~ "0ngml_DMSO",
+      concentration == "15ngml_DMSO" ~ "15ngml_DMSO",
+      concentration == "SB50" & time_min == 60  ~ "SB50_60min",
+      concentration == "SB50" & time_min == 120 ~ "SB50_120min",
+      concentration == "SB50" & time_min == 180 ~ "SB50_180min"
+    )
+  ) %>%
+  filter(!is.na(condition))
+
+counts_exp2_all <- counts_int_all[, rownames(metadata_q2_all)]
+counts_q2_all <- counts_exp2_all[rowSums(counts_exp2_all >= 10) >= 3, ]
+
+metadata_q2_all$condition <- factor(metadata_q2_all$condition)
+dds_all <- DESeqDataSetFromMatrix(counts_q2_all, metadata_q2_all, ~ 1)
+dds_all <- estimateSizeFactors(dds_all)
+norm_counts_all <- counts(dds_all, normalized = TRUE)
+
+# Nodal genes
+nodal_genes <- unique(tolower(na.omit(read_excel("docs/nodal-score-genes_complete.xlsx", skip = 1)$`Nodal score`)))
+nodal_counts_all <- norm_counts_all[tolower(rownames(norm_counts_all)) %in% nodal_genes, , drop = FALSE]
+n_nodal_all <- nrow(nodal_counts_all)
+
+# Settings (reused in both sections)
+conditions <- c("0ngml_DMSO", "15ngml_DMSO", "SB50_60min", "SB50_120min", "SB50_180min")
+cond_labels <- c("0 ng/ml (Control)", "15 ng/ml Activin", "SB50 60 min", "SB50 120 min", "SB50 180 min")
+names(cond_labels) <- conditions
+cond_colors <- c("0ngml_DMSO" = "#BDBDBD", "15ngml_DMSO" = "#5FB358",
+                 "SB50_60min" = "#FDBF6F", "SB50_120min" = "#FF7F00", "SB50_180min" = "#E31A1C")
+
+# Order by control expression
+gene_order_all <- order(rowMeans(nodal_counts_all[, metadata_q2_all$condition == "0ngml_DMSO"]))
+ordered_genes_all <- rownames(nodal_counts_all)[gene_order_all]
+
+cumsum_mat_all <- sapply(colnames(nodal_counts_all), function(s) {
+  cumsum(log2(nodal_counts_all[ordered_genes_all, s] + 1))
+})
+
+# Stats per condition at each rank
+cumsum_stats_all <- expand.grid(gene_rank = 1:n_nodal_all, condition = conditions) %>%
+  rowwise() %>%
+  mutate(
+    vals = list(cumsum_mat_all[gene_rank, rownames(metadata_q2_all)[metadata_q2_all$condition == condition]]),
+    mean = mean(unlist(vals)),
+    sd = sd(unlist(vals))
+  ) %>%
+  dplyr::select(-vals) %>%
+  ungroup() %>%
+  mutate(condition = factor(condition, levels = conditions))
+
+# Per-sample cumulative score for dot overlay
+sample_cond_all <- data.frame(
+  sample_id = rownames(metadata_q2_all),
+  condition = metadata_q2_all$condition,
+  stringsAsFactors = FALSE
+)
+cumsum_long_all <- as.data.frame(cumsum_mat_all) %>%
+  mutate(gene_rank = 1:n_nodal_all) %>%
+  pivot_longer(-gene_rank, names_to = "sample_id", values_to = "cumsum") %>%
+  left_join(sample_cond_all, by = "sample_id") %>%
+  mutate(condition = factor(condition, levels = conditions))
+
+# Identify the outlier in the long data for labelling
+outlier_final <- cumsum_long_all %>%
+  filter(sample_id == "S343239", gene_rank == n_nodal_all)
+
+p_with_outlier <- ggplot(cumsum_stats_all, aes(x = gene_rank, y = mean, color = condition, fill = condition)) +
+  geom_ribbon(aes(ymin = mean - sd, ymax = mean + sd), alpha = 0.15, color = NA) +
+  geom_point(data = cumsum_long_all, aes(x = gene_rank, y = cumsum, color = condition),
+             size = 0.6, alpha = 0.35, shape = 16, inherit.aes = FALSE) +
+  geom_line(linewidth = 1) +
+  # Label outlier
+  ggrepel::geom_text_repel(
+    data = outlier_final, aes(x = gene_rank, y = cumsum, label = "S343239"),
+    inherit.aes = FALSE, size = 2.5, color = "black", fontface = "bold",
+    nudge_x = -2, nudge_y = -5, segment.color = "#999999", segment.size = 0.3
+  ) +
+  scale_color_manual(values = cond_colors, labels = cond_labels, name = "") +
+  scale_fill_manual(values = cond_colors, labels = cond_labels, name = "") +
+  labs(
+    x = bquote("Nodal Score Genes (ranked, " * italic(n) * " = " * .(n_nodal_all) * ")"),
+    y = expression(Sigma ~ log[2](counts + 1)),
+    caption = "Shading: ±1 SD | Outlier S343239 (SB50 60min) labelled"
+  ) +
+  coord_cartesian(xlim = c(1, n_nodal_all * 1.1)) +
+  theme_bw(base_size = 11, base_family = "Helvetica") +
+  theme(
+    panel.grid = element_blank(),
+    legend.position = "bottom",
+    legend.text = element_text(size = 9),
+    axis.title = element_text(size = 11),
+    plot.caption = element_text(size = 8, hjust = 0, color = "#666666")
+  ) +
+  plot_annotation(
+    title = "Nodal Score (with outlier S343239)",
+    subtitle = "Sample S343239 shows near-zero nodal expression despite SB50 60min condition",
+    theme = theme(
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, hjust = 0.5, color = "#666666")
+    )
+  )
+
+pdf(results_path("q2_nodal_score_cumulative_with_outlier.pdf"), width = 10, height = 7, family = "Helvetica")
+print(p_with_outlier)
+dev.off()
+
+png(results_path("q2_nodal_score_cumulative_with_outlier.png"), width = 10, height = 5, units = "in", res = 300)
+print(p_with_outlier)
+dev.off()
+cat("Saved:", results_path("q2_nodal_score_cumulative_with_outlier.pdf"), "\n")
+
+# Clean up "with outlier" intermediates
+rm(metadata_q2_all, counts_exp2_all, counts_q2_all, dds_all, norm_counts_all,
+   nodal_counts_all, n_nodal_all, gene_order_all, ordered_genes_all,
+   cumsum_mat_all, cumsum_stats_all, cumsum_long_all, sample_cond_all,
+   outlier_final, p_with_outlier)
+
+# ============================================================================
+# PART B: NODAL SCORE WITHOUT OUTLIER (definitive analysis)
+# ============================================================================
+# Uses metadata / counts_filtered (from preprocess.R) — outlier excluded
+
+cat("\n========== NODAL SCORE (WITHOUT OUTLIER) ==========\n")
 
 # Load data (from preprocess.R)
 # Filter to Exp2 only

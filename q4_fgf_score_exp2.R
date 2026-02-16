@@ -3,47 +3,37 @@
 # Publication-ready figure for LaTeX (Helvetica)
 # Inspired by the Nodal Score (q2_nodal_score_exp2.R)
 
-library(DESeq2)
-library(readr)
-library(tidyverse)
+source("preprocess.R")
 library(patchwork)
 
 # ============================================================================
-# 1. LOAD AND PREPARE DATA (same as nodal score)
+# 1. LOAD AND PREPARE DATA (via preprocess.R — outlier S343239 already excluded)
 # ============================================================================
 
-counts_raw <- read.table("salmon.merged.gene_counts.tsv", header = TRUE, row.names = 1)[, -1]
-counts_int <- round(counts_raw)
-samples <- read_csv("samples.csv", show_col_types = FALSE)
-
-metadata <- data.frame(
-  sample = paste0("S", samples$requests_sample_sample_id),
-  treatment = sub("^\\d{8}_R\\d+_", "", samples$sample_description),
-  row.names = paste0("S", samples$requests_sample_sample_id)
-) %>%
+metadata_q4 <- metadata %>%
   mutate(
-    experiment = ifelse(grepl("DMSO|SB50", treatment), "Exp2", "Exp1"),
     condition = case_when(
-      grepl("^0ngml.*DMSO", treatment) ~ "0ngml_DMSO",
-      grepl("^15ngml.*DMSO", treatment) ~ "15ngml_DMSO",
-      grepl("50uMSB50.*60min", treatment) ~ "SB50_60min",
-      grepl("50uMSB50.*120min", treatment) ~ "SB50_120min",
-      grepl("50uMSB50.*180min", treatment) ~ "SB50_180min"
+      concentration == "0ngml_DMSO"  ~ "0ngml_DMSO",
+      concentration == "15ngml_DMSO" ~ "15ngml_DMSO",
+      concentration == "SB50" & time_min == 60  ~ "SB50_60min",
+      concentration == "SB50" & time_min == 120 ~ "SB50_120min",
+      concentration == "SB50" & time_min == 180 ~ "SB50_180min"
     )
   ) %>%
-  filter(experiment == "Exp2", !is.na(condition))
+  filter(!is.na(condition))
 
-common_samples <- intersect(colnames(counts_int), rownames(metadata))
-counts_exp2 <- counts_int[, common_samples]
-metadata <- metadata[common_samples, ]
-counts_filtered <- counts_exp2[rowSums(counts_exp2 >= 10) >= 3, ]
+counts_exp2 <- counts_filtered[, rownames(metadata_q4)]
+counts_q4 <- counts_exp2[rowSums(counts_exp2 >= 10) >= 3, ]
 
-metadata$condition <- factor(metadata$condition)
-dds <- DESeqDataSetFromMatrix(counts_filtered, metadata, ~ 1)
+metadata_q4$condition <- factor(metadata_q4$condition)
+dds <- DESeqDataSetFromMatrix(counts_q4, metadata_q4, ~ 1)
 dds <- estimateSizeFactors(dds)
 norm_counts <- counts(dds, normalized = TRUE)
 
 all_genes <- tolower(rownames(norm_counts))
+
+# Use metadata_q4 as 'metadata' locally for the scoring function
+metadata <- metadata_q4
 
 # ============================================================================
 # 2. DEFINE GENE SETS
@@ -318,18 +308,18 @@ for (name in names(results)) {
       )
     )
 
-  pdf(paste0(fname_base, ".pdf"), width = 10, height = 7, family = "Helvetica")
+  pdf(results_path(paste0(fname_base, ".pdf")), width = 10, height = 7, family = "Helvetica")
   print(p_titled)
   dev.off()
 
-  png(paste0(fname_base, ".png"), width = 10, height = 5, units = "in", res = 300)
+  png(results_path(paste0(fname_base, ".png")), width = 10, height = 5, units = "in", res = 300)
   print(p_titled)
   dev.off()
 
-  write_csv(res$stats, paste0(fname_base, "_stats.csv"))
-  write_csv(res$final_scores, paste0(fname_base, "_per_sample.csv"))
+  write_csv(res$stats, results_path(paste0(fname_base, "_stats.csv")))
+  write_csv(res$final_scores, results_path(paste0(fname_base, "_per_sample.csv")))
 
-  cat(sprintf("Saved: %s.pdf/png\n", fname_base))
+  cat(sprintf("Saved: %s.pdf/png\n", results_path(fname_base)))
 }
 
 # ============================================================================
@@ -366,15 +356,15 @@ if (length(valid_results) >= 2) {
 
   final_panel <- combined / legend_grob + plot_layout(heights = c(20, 1))
 
-  pdf("q4_fgf_scores_combined.pdf", width = 14, height = 12, family = "Helvetica")
+  pdf(results_path("q4_fgf_scores_combined.pdf"), width = 14, height = 12, family = "Helvetica")
   print(final_panel)
   dev.off()
 
-  png("q4_fgf_scores_combined.png", width = 14, height = 12, units = "in", res = 300)
+  png(results_path("q4_fgf_scores_combined.png"), width = 14, height = 12, units = "in", res = 300)
   print(final_panel)
   dev.off()
 
-  cat("\nSaved: q4_fgf_scores_combined.pdf/png\n")
+  cat("\nSaved:", results_path("q4_fgf_scores_combined.pdf/png"), "\n")
 }
 
 # ============================================================================
@@ -384,7 +374,7 @@ if (length(valid_results) >= 2) {
 summary_table <- map_dfr(valid_results, function(res) {
   res$stats %>% mutate(gene_set = res$score_name)
 })
-write_csv(summary_table, "q4_fgf_all_stats.csv")
+write_csv(summary_table, results_path("q4_fgf_all_stats.csv"))
 
 cat("\n============================================================\n")
 cat("FGF SCORE ANALYSIS COMPLETE\n")
@@ -393,7 +383,7 @@ cat("\nGene sets analyzed:\n")
 for (res in valid_results) {
   cat(sprintf("  %s: %d genes\n", res$score_name, res$n_genes))
 }
-cat("\nOutput files:\n")
+cat("\nOutput files (all in results/):\n")
 cat("  - q4_fgf_targets_score.pdf/png + stats\n")
 cat("  - q4_fgf_ligands_score.pdf/png + stats\n")
 cat("  - q4_dusp_family_score.pdf/png + stats\n")
