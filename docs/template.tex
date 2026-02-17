@@ -23,7 +23,7 @@
 % ============================================================================
 % TITLE INFORMATION
 % ============================================================================
-\title{Analysis Report on the Quant-Seq Data from Lena}
+\title{Analysis Report on the Quant-Seq Data from Lena v2.0}
 \author{Andrés Gordo\textsuperscript{1}  \\[0.5em]
     \small \textsuperscript{1}IMP, Vienna, Austria \\
 }
@@ -67,9 +67,13 @@
 
 \maketitle
 
-% ----------------------------------------------------------------------------
-\section{Preprocessing \& Parameters}
-% ----------------------------------------------------------------------------
+% ============================================================================
+% SECTION 1: PREPROCESSING & QC
+% ============================================================================
+% Scripts: preprocess.R, visualize_annotation_comparison.R
+% ============================================================================
+\section{Preprocessing \& Quality Control}
+
 Following our meeting, I decided to re-run the upstream processing of the Quant-Seq samples using the latest build of the \textit{Danio rerio} genome (GRCz12tu; Apr 4, 2025). I tried to keep the analysis consistent with what Maria did previously, running a UMI-sensitive pipeline with the following command:
 
 \begin{lstlisting}[
@@ -95,42 +99,59 @@ sbatch submit_nextflow_clip.sh \
   -with-tower
 \end{lstlisting}
 
-The raw output files for the pipeline can be found in \verb|/bioinfo/andres.gordo/rnaseq_nfcore_out_umi.tar.gz|. The main output file that was used for downstream analysis is the gene counts matrix \verb|salmon.merged.gene_counts.tsv|. Normalisation and differential expression analysis was performed using DESeq2 in R (see code for details), with log2 fold-change shrinkage applied via a zero-centred Normal prior (\texttt{lfcShrink}, \texttt{type = "normal"}) to stabilise extreme effect-size estimates. From now onwards, a differentially expressed gene (DEG) is defined as one with an adjusted p-value $< 0.05$ (BH) and an absolute log2 fold change $\geq 1.0$. Genes with less than 10 counts across at least 3 samples were filtered out prior to DE analysis. This, as will be observed later, resulted in wnt11---member of the Nodal score---being lost.
+The raw output files for the pipeline can be found in \verb|/bioinfo/andres.gordo/rnaseq_nfcore_out_umi.tar.gz|. The main output file that was used for downstream analysis is the gene counts matrix \verb|salmon.merged.gene_counts.tsv|. Normalisation and differential expression analysis was performed using DESeq2 in R (see code for details), with log2 fold-change shrinkage applied via a zero-centred Normal prior (\texttt{lfcShrink}, \texttt{type = "normal"}) to stabilise extreme effect-size estimates. From now onwards, a differentially expressed gene (DEG) is defined as one with an adjusted p-value $< 0.05$ (BH) and an absolute log2 fold change $\geq 1.0$. Genes with less than 10 counts across at least 3 samples were filtered out prior to DE analysis. This, as will be observed later, resulted in wnt11---member of the Nodal score---being lost. All output plots and .CSV files from the analyses can be found in the \verb|results/| directory, with file names indicating the specific analysis and comparison performed (see code for details).
+
+\noindent{\footnotesize\textbf{Output:} \texttt{salmon.merged.gene\_counts.tsv}.}
+
+\subsection{Genome annotation comparison (GRCz11 vs GRCz12tu)}
+% Script: visualize_annotation_comparison.R
+% CSV: compare_annotations/my_genes_annotation_check.csv
+%      compare_annotations/newly_annotated_genes_with_names.csv
+
+I also quickly compared the differences between the GRCz11 and GRCz12tu builds, and found that the biggest difference lies in an increase in the number of lncRNAs, which are not relevant for this analysis. I also observed some protein-coding additions and removals (mostly computational). (Fig~\ref{fig:annotation_changes}). After our second meeting, I double-checked that none of the DEGs in the following analyses were affected by these annotation changes. I found that, even though there are 37 additions, almost all of them are newly-added computational genes. Cdh30 being the only exception, which was previously annotated as pseudogene and now counts as a fully functional protein coding gene. Regardless, the new annotation does not seem to alter our conclusions.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=\columnwidth]{results/compare_annotations/annotation_comparison_figure.pdf}
-\caption{Annotations differences between the GRCz11 and GRCz12tu builds, showing the number of genes that were added, removed, or kept in each biotype category. None of the DEGs obtained in the following analyses were affected by these changes.}
+\caption{Annotations differences between the GRCz11 and GRCz12tu builds, showing the number of genes that were added, removed, or kept in each biotype category. None of the DEGs obtained in the following analyses were affected by these changes, except Cdh30.}
 \label{fig:annotation_changes}
 \end{figure}
 
-I also quickly compared the differences between the GRCz11 and GRCz12tu builds, and found that the biggest difference lies in an increase in the number of lncRNAs, which are not relevant for this analysis. I also observed some protein-coding additions and removals (mostly computational), although none of the DEGs obtained in the following analyses were affected by those changes (Fig~\ref{fig:annotation_changes}).
 
-\section{Maria's Re-Analysis}
+% ============================================================================
+% SECTION 2: EXPLORATORY ANALYSIS & OUTLIER DETECTION
+% ============================================================================
+% Scripts: exp1_maria_reanalaysis.R, q2_pca_drivers.R, q2_nodal_score_exp2.R
+% ============================================================================
+\section{Exploratory Analysis}
 
-I started by quickly re-exploring one of Maria's previous analyses to 1) ensure that I could reproduce her results and 2) investigate if any newly-annotated gene popped up as DEG. Figure~\ref{fig:single} shows a result from Experiment 1, whereby the exposure time, but not the concentration, of Activin led to significant changes in the expression of genes from the Nodal score.
+\subsection{Re-analysis of Experiment 1 (Maria's data)}
+% Script: exp1_maria_reanalaysis.R
 
-% --- Single column figure ---
-\begin{figure}[H]
-\centering
-\includegraphics[width=\columnwidth]{results/nodal_heatmap_exp1_averaged.pdf}
-\caption{Z Score of counts from the Nodal score genes across different time points and Activin concentration in Experiment 1.}
-\label{fig:single}
-\end{figure}
-
-
-
+I started by quickly re-exploring one of Maria's previous analyses to 1) ensure that I could reproduce her results and 2) asses the quality and cohesivity among samples. Figure~\ref{fig:nodal_heatmap_averaged} shows a result from Experiment~1, whereby the exposure time, but not the concentration, of Activin led to significant changes in the expression of genes from the Nodal score.
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=\columnwidth]{results/pca_combined.pdf}
-\caption{PCA of gene expression across different time points and Activin concentration in Experiment 1 and Experiment 2.}
-\label{fig:pca_combined}
+\includegraphics[width=1.1\columnwidth]{results/nodal_heatmap_exp1_averaged.pdf}
+\caption{Z-scored Nodal score gene expression across timepoints and Activin concentrations in Exp~1 (condition-averaged).}
+\label{fig:nodal_heatmap_averaged}
 \end{figure}
+
+% NOTE: results/nodal_heatmap_exp1_aggregated.pdf also available (per-sample version)
+
+\noindent{\footnotesize\textbf{Output:} \texttt{compare\_annotations/my\_genes\_annotation\_check.csv}, \texttt{SUMMARY\_REPORT.txt}.}
+
+\subsection{PCA overview}
+% Script: q2_pca_drivers.R
+% CSV: q2_pca_loadings.csv
+%      q2_pca_drivers_go_bp.csv, q2_pca_drivers_go_mf.csv, q2_pca_drivers_go_cc.csv
+% NOTE: q2_pca_biplot.pdf removed (subset of pca_combined.pdf above).
+% NOTE: q2_pca_drivers_go_all.pdf removed (tall portrait GO plot, details in CSV).
 
 \subsection{Outlier identification}
-% TODO: Write about the outlier S343239 (SB50 60min, Exp2)
-% Visible on PCA; confirmed by near-zero Nodal score.
+% Script: q2_nodal_score_exp2.R (with-outlier version)
+
+After Diana noticed a notable inter-sample heterogeneity in the SB50@60 min of Exp 2, I decided to plot the Nodal score with the samples as dots, alongisde their averaged mean and sd. Indeed, that revealed an outlier sample (S343239, SB50 60\,min) that behaved completely as a control (see Figure~\ref{fig:nodalscore_outlier} ). PCA analysis (Figure~\ref{fig:pca_combined} B) confirms this: the outlier is clustered away from its replicates despite receiving the same treatment. Surprisingly, the outlier did not cluster at all near the controls, and shows a divergence unlike any other sample. Panel B shows the the top genes driving the divergence of the outlier (top PCA loadings), as well as their main GO terms. This sample was excluded from all subsequent analyses.
 
 \begin{figure}[H]
 \centering
@@ -139,18 +160,48 @@ I started by quickly re-exploring one of Maria's previous analyses to 1) ensure 
 \label{fig:nodalscore_outlier}
 \end{figure}
 
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{results/pca_combined.pdf}
+\caption{PCA of gene expression across timepoints and Activin concentrations in Exp~1 and Exp~2. Panel A (Exp 1) PC1 shows that developemntal time is the main driver of variance, followed by PC2, which captures the activin treatment. Panel B (Exp 2) shows that the outlier sample (S343239, SB50 60\,min) diverges from its replicates and does not cluster with any other condition. The top genes driving this divergence are listed, along with their GO enrichment results.}
+\label{fig:pca_combined}
+\end{figure*}
+
+
+% ============================================================================
+% SECTION 3: CONSISTENCY OF ACTIVIN RESPONSE (Exp 1 vs Exp 2)
+% ============================================================================
+% Script: q1_activin_comparison.R
+% CSV: q1_exp1_0vs15_activin_240min.csv
+%      q1_exp2_0vs15_dmso.csv
+%      q1_shared_de_genes.csv
+% ============================================================================
 \section{Consistency of Activin Response}
 
-\begin{figure}[H]
+\noindent{\footnotesize\textbf{Output:} \texttt{q2\_pca\_loadings.csv}, \texttt{q2\_nodal\_scores\_per\_sample.csv}, \texttt{q2\_statistical\_tests.csv}.}
+
+The first thing on the list was to compare the DGE expression for $0$~ng/ml Activin vs.\ $15$~ng/ml Activin in Experiment~1 vs.\ Experiment~2. As can be observed in Figure~\ref{fig:exp1_vs_exp2}, there is good consistency between both experiments, with most genes following the same trend (up- or down-regulated). Experiment~1 yielded $1{,}255$ DEGs, while Experiment~2 had $1{,}013$ DEGs, with a total of $804$ DEGs in common. A quick look at one of the top genes, id3, reveals it as a DNA remodeller that is expressed at the dorsal side of the embryo. The list of all and shared DEGs can be found in q1\_exp1\_0vs15\_activin\_240min.csv, q1\_exp2\_0vs15\_dmso.csv, and q1\_shared\_de\_genes.csv, respectively.
+
+\begin{figure*}[t]
 \centering
-\includegraphics[width=\columnwidth]{results/q1_combined_volcano.pdf}
-\caption{Volcano plots of DEGs in each experiment. In purple the shared genes. DEGs defined as adjusted p-value $<= 0.05$ and absolute log2 fold change $>= 1.0$.}
+\includegraphics[width=\textwidth]{results/q1_combined_volcano.pdf}
+\caption{Volcano plots of DEGs in each experiment. In purple the shared genes. DEGs defined as adjusted p-value $\leq 0.05$ and absolute log2 fold change $\geq 1.0$.}
 \label{fig:exp1_vs_exp2}
-\end{figure}
+\end{figure*}
 
-The first thing on the list was to compare the DGE expression for $0$~ng/ml Activin vs.\ $15$~ng/ml Activin in Experiment~1 vs.\ Experiment~2. As can be observed in Figure~\ref{fig:exp1_vs_exp2}, there is good consistency between both experiments, with most genes following the same trend (up- or down-regulated). Experiment~1 yielded $1{,}311$ DEGs, while Experiment~2 had $1{,}076$ DEGs, with a total of $845$ DEGs in common. A quick look at one of the top genes, id3, reveals it as a DNA remodeller that is expressed at the dorsal side of the embryo. The list of all and shared DEGs can be found in q1\_exp1\_0vs15\_activin\_240min.csv, q1\_exp2\_0vs15\_dmso.csv, and q1\_shared\_de\_genes.csv, respectively.
 
+% ============================================================================
+% SECTION 4: NODAL SCORE EXPLORATION
+% ============================================================================
+% Scripts: q2_nodal_score_exp2.R, q2_nodal_divergence.R
+% CSV: q2_statistical_tests.csv
+%      q2_nodal_scores_per_sample.csv
+%      q2_nodal_divergence_activin_vs_sb180.csv
+%      q2_nodal_divergence_all_sb50.csv
+% ============================================================================
 \section{Nodal Score Exploration}
+
+\noindent{\footnotesize\textbf{Output:} \texttt{q1\_exp1\_0vs15\_activin\_240min.csv}, \texttt{q1\_exp2\_0vs15\_dmso.csv}, \texttt{q1\_shared\_de\_genes.csv}.}
 
 Next on the list was to re-explore how the selected list of genes belonging to the Nodal score varied in expression after 240 minutes of constant Activin exposure or Activin inhibition by SB50 at different timepoints. Figure~\ref{fig:nodalscore} shows the cumulative read counts of those Nodal score genes depending on the treatment. The `clean' treatment with Activin reaches the highest stimulation, whereas treatment with SB50 dampens the response. As was observed before, the longer the initial exposure to Activin, the more irreversibly committed the cells are, thereby responding less to the SB50 treatment. The statistical test resembles the one performed for GSEA (see code for details).
 
@@ -162,8 +213,9 @@ Next on the list was to re-explore how the selected list of genes belonging to t
 \end{figure}
 
 \subsection{Nodal score divergence drivers}
-% TODO: Write about which genes drive the divergence between the Activin and
-% SB50-180min lines at the endpoint (Figure~\ref{fig:nodal_divergence}).
+% Script: q2_nodal_divergence.R
+
+To pinpoint which individual genes drive the divergence between the fully Activin-stimulated condition and the SB50-180\,min treatment, I ranked genes by the difference in their cumulative normalised counts at endpoint. Figure~\ref{fig:nodal_divergence} shows this ranking, while Figure~\ref{fig:nodal_divergence_panels} displays the per-gene expression profiles across conditions for the top divergence-driving genes. These panels highlight genes whose expression is most sensitive to the timing of SB50 addition, thereby shedding light as to which take more time to commit to the Activin-induced program and which are more rapidly responsive.
 
 \begin{figure}[H]
 \centering
@@ -175,51 +227,71 @@ Next on the list was to re-explore how the selected list of genes belonging to t
 \begin{figure}[H]
 \centering
 \includegraphics[width=\columnwidth]{results/q2_nodal_divergence_gene_panels.pdf}
-\caption{Per-gene expression across conditions for the top divergence-driving Nodal score genes.}
+\caption{Per-gene expression across conditions for the top divergence-driving Nodal score genes. Error bars show standard deviation across replicates.}
 \label{fig:nodal_divergence_panels}
 \end{figure}
 
 
+% ============================================================================
+% SECTION 5: BLOCKING EFFECT OF SB50
+% ============================================================================
+% Scripts: q3_sb50_comparison.R, q3_extended_analysis.R
+% CSV: q3_Activin_vs_Baseline.csv
+%      q3_category_summary.csv, q3_summary.csv
+%      q3_genelist_blocked_{60,120,180}min.csv
+%      q3_genelist_not_blocked_{60,120,180}min.csv
+%      q3_genelist_sb50_specific_{60,120,180}min.csv
+%      q3_always_not_blocked_genes.csv
+% ============================================================================
 \section{Blocking Effect of SB50}
+
+\noindent{\footnotesize\textbf{Output:} \texttt{q2\_nodal\_divergence\_all\_sb50.csv}, \texttt{q2\_nodal\_divergence\_activin\_vs\_sb180.csv}.}
 
 Next, I wanted to explore how many of the genes that were altered by Activin were effectively blocked by the SB50 treatment. In Experiment~2, SB50 severs activin signaling at the time of administration (60, 120, or 180\,min), and all samples are collected at 240\,min. Thus, a gene classified as ``Blocked'' at 60\,min means that 60\,min of activin exposure was \emph{not} sufficient for the gene to commit to the activin-induced expression program---once activin was cut off, the gene returned to baseline by collection time. Conversely, ``Not blocked'' means the gene committed within that exposure window: even though activin was severed, its effect persisted at 240\,min.
 
-I found a total of 826 DEGs comparing Activin vs.\ the baseline control in Experiment~2. Of these, 533 were upregulated and 293 were downregulated. On the other hand, 227, 609, and 887 DEGs were found after severing activin with SB50 at 60, 120, and 180\,min, respectively. This is consistent with the idea that longer activin exposure leads to more irreversible commitment. Figure~\ref{fig:sb50_blocking} shows that the highest proportion of blocked (uncommitted) genes occurs at 60\,min, when cells had the shortest activin exposure. As the exposure window increases, more genes commit and become unblockable. Importantly, no gene shows a reversed response: genes are either blocked (uncommitted), not blocked (committed), or SB50-specific (activin-independent SB50 effects).
+I found a total of 826 DEGs comparing Activin vs.\ the baseline control in Experiment~2. Of these, 533 were upregulated and 293 were downregulated. On the other hand, 227, 609, and 887 DEGs were found after severing activin with SB50 at 60, 120, and 180\,min, respectively. This is consistent with the idea that longer activin exposure leads to more irreversible commitment. Figure~\ref{fig:sb50_blocking} shows that the highest proportion of blocked (uncommitted) genes occurs at 60\,min, when cells had the shortest activin exposure. As the exposure window increases, more genes commit and become unblockable. Importantly, no gene shows a reversed response: genes are either blocked (uncommitted), not blocked (committed), or SB50-specific (activin-independent SB50 effects). In addition to blocking genes, whic requires going from statsitical significancy to non-significancy, SB50 at 60 minutes also shows a vastgroup of red genes that are dampened in expression if activin activity is severed at 60 minutes, but that do not reach the statistical threshold to be classified as blocked.
+
+\subsection{Blocking classification}
+% Script: q3_sb50_comparison.R (Analysis 1)
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=\columnwidth]{results/q3_analysis1_blocking.pdf}
-\caption{SB50 blocking of Activin-induced genes. Scatter plots show Activin effect (x-axis) vs.\ SB50+Activin effect (y-axis) for each activin exposure window. Categories: \textcolor[HTML]{2166AC}{\textbf{Blocked}} (uncommitted: Activin-DE but reversed by SB50 cutoff), \textcolor[HTML]{B2182B}{\textbf{Not blocked}} (committed: DE persists despite SB50), \textcolor[HTML]{1B7837}{\textbf{SB50-specific}} (activin-independent SB50 effect). Bar chart shows how longer activin exposure leads to more committed genes.}
+\caption{SB50 blocking of Activin-induced genes. Scatter plots show Activin effect (x-axis) vs.\ SB50+Activin effect (y-axis) for each activin exposure window. Categories: \textcolor[HTML]{2166AC}{\textbf{Blocked}} (uncommitted: Activin-DE but reversed by SB50 cutoff), \textcolor[HTML]{B2182B}{\textbf{Not blocked}} (committed: DE persists despite SB50), \textcolor[HTML]{1B7837}{\textbf{SB50-specific}} (activin-independent SB50 effect).}
 \label{fig:sb50_blocking}
 \end{figure}
 
 \subsection{Robustness of blocking classification}
+% Script: q3_extended_analysis.R
 \label{sec:blocking_robustness}
 
-The main blocking figure above includes all four gene categories. To evaluate the robustness of the blocking classification, I repeated the analysis with two modifications (Figure~\ref{fig:blocking_variants}). First, I removed the SB50-specific genes (panel~a), since these are not Activin-responsive and may obscure the blocking proportions. This focuses the bar chart exclusively on the question: of genes altered by Activin, what fraction does SB50 block? Second, I restricted the analysis to genes that are DEG in both Experiment~1 and Experiment~2 (panel~b). Using only shared DEGs provides a more stringent gene set and tests whether the blocking pattern is reproducible.
+The main blocking figure above includes all four gene categories. To evaluate the robustness of the blocking classification, I repeated the analysis with two modifications (Figure~\ref{fig:blocking_variants}). First, I removed the SB50-specific genes (panel~a), since these are not Activin-responsive and may obscure the blocking proportions. This focuses the bar chart exclusively on the question: of genes altered by Activin, what fraction does SB50 block? Second, I restricted the analysis to genes that are DEG in both Experiment~1 and Experiment~2 (panel~b). Using only shared DEGs provides a more stringent gene set and tests whether the blocking pattern is reproducible. Regardless, as it can be observed the conclusions drawn before as fully applciable for these two variants as well. Taking this, and the strong linearity observed in Figure~\ref{fig:exp1_vs_exp2}, I will use all genes of the corresponding Experiment (not only the shared ones) to work in the rest of the analyses.
 
-\begin{figure}[H]
+\begin{figure*}[t]
 \centering
-% Panel a: No SB50-specific
-\includegraphics[width=\columnwidth]{results/q3_blocking_no_sb50specific.pdf}
-\smallskip
-
-\includegraphics[width=\columnwidth]{results/q3_blocking_shared_degs.pdf}
-\caption{Robustness of SB50 blocking. \textbf{(Top)} Analysis restricted to Activin-responsive genes only (SB50-specific removed). \textbf{(Bottom)} Analysis restricted to DEGs shared between Exp~1 and Exp~2. In both cases, the blocking gradient across timepoints is preserved.}
+\begin{subfigure}[t]{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{results/q3_blocking_no_sb50specific.pdf}
+\caption{Activin-responsive genes only (SB50-specific removed).}
+\end{subfigure}\hfill
+\begin{subfigure}[t]{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{results/q3_blocking_shared_degs.pdf}
+\caption{Restricted to shared DEGs (Exp~1 $\cap$ Exp~2), incl.\ SB50-specific.}
+\end{subfigure}
+\caption{Robustness checks for the SB50 blocking classification.}
 \label{fig:blocking_variants}
-\end{figure}
+\end{figure*}
 
 \subsection{Gene category transitions across timepoints}
+% Script: q3_extended_analysis.R
+% CSV: q3_gene_transfer_tracking.csv
+%      q3_transfer_path_summary.csv
+%      q3_transition_matrix.csv
+%      q3_transfer_go_enrichment.csv
 \label{sec:gene_transfer}
 
-An important question is what happens to individual genes as activin exposure time increases: do genes that are uncommitted (blocked) at 60\,min remain uncommitted, or do they commit as the exposure window grows? Figure~\ref{fig:gene_transfer} tracks these transitions. Each bar shows, for a given starting status, how many genes transition to each destination as activin exposure increases by one interval. The blue bars indicate genes whose activin response remains reversible (still uncommitted), while the red bars show genes that have committed. ``Newly committed'' (orange) are genes that cross the commitment threshold during that interval---these define the critical exposure window for each gene set. To understand which biological functions characterise each transition, I ran GO enrichment (Biological Process and Molecular Function) on the same pairwise-transition gene sets that correspond to each bar (Figure~\ref{fig:gene_transfer_go}).
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=\columnwidth]{results/q3_gene_transfer_plot.pdf}
-\caption{Gene commitment transitions between activin exposure windows. Each bar shows how genes with a given status redistribute as activin exposure increases. Blue: still uncommitted; orange: newly committed; red: already committed. Left: 60\,$\to$\,120\,min; right: 120\,$\to$\,180\,min.}
-\label{fig:gene_transfer}
-\end{figure}
+An important question is what happens to individual genes as activin exposure time increases: do genes that are uncommitted (blocked) at 60\,min remain uncommitted, or do they commit as the exposure window grows? Figure~\ref{fig:gene_transfer_go} tracks these transitions. Each bar shows, for a given starting status, how many genes transition to each destination as activin exposure increases by one interval. The blue bars indicate genes whose activin response remains reversible (still uncommitted), while the red bars show genes that have committed. ``Newly committed'' (orange) are genes that cross the commitment threshold during that interval---these define the critical exposure window for each gene set. To understand which biological functions characterise each transition, I ran GO enrichment (Biological Process and Molecular Function) on the same pairwise-transition gene sets. Predictably, many genes commit between the 60 to 120 minutes lapse, while at 180 minutes the avst majority of them cannot be blocked anymore and therefore are already commited. The GO enrichment sections only display comaprisons where significant terms were found. Accordingly, signalling-related terms are enriched among the genes that are first to commit (already commited at the 60 to 120 min transition), while morphogenic-related terms, which may act dowsntream fo the formers, are commited just afterwards (newly committed in the 60 to 120 min transition). Note that the already commited group at the 120 to 180 min transiiton is a superset of the already commited at the 60 to 120 min transition. Interestingly, 9 genes had their commitment reverted between 60 and 120 minutes--which means that 60 minutes expsoure was sufficent to regulate them, but further increasing the exposure time to 120 minutes led to a decrease in their commitment. Another way to put it is that exposing them to 60 min activin makes them independent of activin further on, but exposing them to activin for 120 minutes contributes to make them dependent on activin. I was also surprised to find a 9 gene list having Go enriched terms but not other bigger categories, like the newly commited between 120 to 180 min. I mannually checked it and it seems correct, suggesting the bigger lists containing more diverse genes that do not arise significanly with the hypergeometric test of GO enrichment.
 
 \begin{figure*}[t]
 \centering
@@ -229,19 +301,25 @@ An important question is what happens to individual genes as activin exposure ti
 \end{figure*}
 
 \subsection{Expression patterns of blocked genes}
-% TODO: Write about the expression patterns of genes blocked by SB50.
+% Script: q3_extended_analysis.R
+% NOTE: q3_blocked_genes_expression.pdf is currently corrupt (empty page).
+%       Bug: tryCatch(pheatmap(...), finally = dev.off()) calls dev.off() at
+%       argument-evaluation time, closing the PDF device before pheatmap renders.
+%       Fixed in q3_extended_analysis.R — re-run the script to regenerate.
 
-\begin{figure}[H]
-\centering
-\includegraphics[width=\columnwidth]{results/q3_blocked_genes_expression.pdf}
-\caption{Expression heatmap (z-scored) of top 30 genes classified as ``Blocked'' at the 60\,min timepoint, across all conditions.}
-\label{fig:blocked_expression}
-\end{figure}
+% \begin{figure}[H]
+% \centering
+% \includegraphics[width=\columnwidth]{results/q3_blocked_genes_expression.pdf}
+% \caption{Expression heatmap (z-scored) of top 30 genes blocked at the 60\,min timepoint.}
+% \label{fig:blocked_expression}
+% \end{figure}
 
 \subsection{GO enrichment of SB50-specific genes}
+% Script: q3_extended_analysis.R
+% CSV: q3_sb50_specific_go_combined.csv
 \label{sec:sb50_specific_go}
 
-The SB50-specific (green) category is biologically interesting: these genes are \emph{not} altered by Activin alone, but become significantly differentially expressed only when SB50 is added. They represent activin-independent effects of SB50---pathways that SB50 activates or represses regardless of TGF-$\beta$ signalling. Figure~\ref{fig:sb50_specific_go} shows GO enrichment across Biological Process, Molecular Function, and Cellular Component ontologies, faceted by activin exposure time. Since the enriched terms differ substantially between timepoints (reflecting distinct gene sets at each window), each row shows its own top terms rather than forcing a shared axis.
+The SB50-specific (green) category is biologically interesting: these genes are \emph{not} altered by Activin alone, but become significantly differentially expressed only when SB50 is added. They represent activin-independent effects of SB50---pathways that SB50 activates or represses regardless of activin signalling. Figure~\ref{fig:sb50_specific_go} shows GO enrichment across Biological Process, Molecular Function, and Cellular Component ontologies, faceted by activin exposure time. Since the enriched terms differ substantially between timepoints (reflecting distinct gene sets at each window), each row shows its own top terms rather than forcing a shared axis. As hypothesised, these genes show a strong relation to a stress response due to the treatment per se. I find notably useful that we can diseect and uncouple the drug secondary effects from the activin-related effects.
 
 \begin{figure*}[t]
 \centering
@@ -250,16 +328,17 @@ The SB50-specific (green) category is biologically interesting: these genes are 
 \label{fig:sb50_specific_go}
 \end{figure*}
 
+\noindent{\footnotesize\textbf{Output:} \texttt{q3\_Activin\_vs\_Baseline.csv}, \texttt{q3\_category\_summary.csv}, \texttt{q3\_gene\_transfer\_tracking.csv}, \texttt{q3\_genelist\_blocked\_\{60,120,180\}min.csv}, \texttt{q3\_always\_not\_blocked\_genes.csv}, \texttt{q3\_transfer\_go\_enrichment.csv}.}
 
-\section{SB50 Effect vs.\ Timed Exp 1}
+\subsection{SB50 effect vs.\ timed Exp~1 comparisons}
+% Script: q3_sb50_comparison.R (Analysis 2)
+% CSV: q3_analysis2_summary.csv
+%      q3_SB50_{60,120,180}min_vs_Exp1_{60,120,180}min.csv
 
 A similar yet different analysis from the previous is the question of comparing the effect of SB50 treatment with the corresponding matching times of collection in Experiment~1. Figure~\ref{fig:sb50_vs_time} shows this approach. The way I interpret it is manifold. First, looking at the X axis, which compares the effect of SB50 at endpoint with the effect of Activin at endpoint (both from Experiment~2), we again observe how SB50 is more effective at blocking---downregulating---genes when added at the earliest point (orange points more abundant on the left side; they decrease in number as we increase the treatment time). Second, looking at the Y axis, we are comparing instead the effect at endpoint of SB50 (Experiment~2) with the state of cells that were exposed to Activin at a given timepoint. Therefore, the gene expression differences between these two conditions reflect two different temporal states. In the first plot (top left), we compare adding SB50 at 60min and collecting at 240 minutes with Activin-induced cells collected at 60 minutes. As expected, many genes are differentially expressed (mostly upregulated) between 60 minutes and 240 minutes, regardless of the SB50 treatment. However, as we delay not only the time of SB50 addition but also of Activin-induced cells collection, the two conditions temporally converge, and the number of DEGs decreases.
 
-These two figures suggest that:
-\begin{enumerate}
-  \item SB50 is more effective at blocking Activin-induced genes the earlier it is added, hinting at a cell commitment process that is time-dependent.
-  \item Uncoupling temporal states from Activin inductions allows us to dissect which genes are Activin-dependent vs.\ time-dependent.
-\end{enumerate}
+These two figures suggest that: 1) SB50 is more effective at blocking Activin-induced genes the earlier it is added, hinting at a cell commitment process that is time-dependent. 2) Uncoupling temporal states from Activin inductions allows us to dissect which genes are Activin-dependent vs.\ time-dependent.
+
 
 \begin{figure}[H]
 \centering
@@ -269,255 +348,259 @@ These two figures suggest that:
 \end{figure}
 
 
-\section{Gene Candidates \& ChIP-Seq}
+% ============================================================================
+% SECTION 6: GENE CANDIDATES & ChIP-Seq INTEGRATION
+% ============================================================================
+% Scripts: q4_chipseq_integration.R, q4_extended_analysis.R
+% CSV: q4_chipseq_candidates.csv, q4_chipseq_nodal.csv
+%      q4_temporal_clusters.csv
+%      q4_peak_expression_times.csv
+%      q4_reversibility_scores.csv, q4_reversibility_classified.csv
+%      q4_combined_summary.csv
+%      q4_candidate_validation.csv, q4_alternative_candidates.csv
+%      q4_family_temporal_profiles.csv
+% ============================================================================
+\section{Gene Candidates \& ChIP-Seq Integration}
 
-Finally, I explored the dynamics of gene expression of the list of candidates genes alongside the ones encompasing the nodal Score, and integrated insights from the publsihed 2014 ChIP-Seq dataset of Smad2 and Eomesa. To do that, I first asked whether these genes appeared in either ChIP-seq dataset. Figure~\ref{fig:chip} shows that information, including if the FoxH1 motif was also found around the peak.
+\noindent{\footnotesize\textbf{Output:} \texttt{q3\_analysis2\_summary.csv}.}
 
+Finally, I explored the dynamics of gene expression of the list of candidate genes alongside the ones encompassing the Nodal Score, and integrated insights from the published 2014 ChIP-Seq dataset of Smad2 and EomesA. To do that, I first asked whether these genes appeared in either ChIP-seq dataset. Figure~\ref{fig:chipseq_combined} shows that information, including if the FoxH1 motif was also found around the peak.
 
-\begin{figure}[t]
+\subsection{ChIP-seq binding evidence}
+% Script: q4_extended_analysis.R (split heatmaps)
+
+\begin{figure*}[t]
 \centering
-\includegraphics[width=\columnwidth]{results/q4_chipseq_binding_heatmap.pdf}
-\caption{Heatmap showing if the candidate or nodal score genes were found in the ChIP-seq experiment, including the presence of the FoxH1 motif around the peak.}
-\label{fig:chip}
-\end{figure}
+\begin{subfigure}[t]{0.45\textwidth}
+\centering
+\includegraphics[width=\textwidth,height=0.75\textheight,keepaspectratio]{results/q4_chipseq_nodal_candidates.pdf}
+\caption{Nodal score + candidate genes, incl.\ FoxH1 motif.}
+\end{subfigure}\hfill
+\begin{subfigure}[t]{0.45\textwidth}
+\centering
+\includegraphics[width=\textwidth,height=0.75\textheight,keepaspectratio]{results/q4_chipseq_dusp_fgf.pdf}
+\caption{DUSP family, FGF targets, ligands, and receptors.}
+\end{subfigure}
+\caption{ChIP-seq (Smad2, EomesA) binding evidence for candidate gene sets.}
+\label{fig:chipseq_combined}
+\end{figure*}
 
-Next, I analysed the ppaterns of gene expression in respone to activin (Exp 1) of these candiadte genes and the Nodal score. I found that, except sna1b--which is downregulated--, all genes are either actiavted consistently, or activated at early timepoints and then downregulated at later timepoints. Thisis shown in Figure~\ref{fig:temporal_clusters}.
+\subsection{Temporal expression clusters (Exp~1)}
+% Script: q4_chipseq_integration.R
+
+Next, I analysed the patterns of gene expression in response to Activin (Exp~1) of these candidate genes and the Nodal score. I found that, except sna1b---which is downregulated---all genes are either activated consistently, or activated at early timepoints and then downregulated at later timepoints. This is shown in Figure~\ref{fig:temporal_clusters}.
 
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{results/q4_temporal_clusters.pdf}
-\caption{Heatmap showing the temporal patterns of gene expression in response to Activin (Experiment 1) for the candidate genes and the Nodal score.}
+\caption{Heatmap showing the temporal patterns of gene expression in response to Activin (Experiment~1) for the candidate genes and the Nodal score.}
 \label{fig:temporal_clusters}
 \end{figure*}
 
-Consequently, Figure~\ref{fig:reversibility_profile} shows the same genes but how they respond to the Experiment 2 treatments.
+% NOTE: q4_reversibility_profile.pdf removed (content covered by integrated overviews below).
 
-\begin{figure}[t]
+\subsection{Integrated overview (60\,min and 120\,min)}
+% Script: q4_chipseq_integration.R, q4_extended_analysis.R
+
+\begin{figure*}[t]
 \centering
-\includegraphics[width=\columnwidth]{results/q4_reversibility_profile.pdf}
-\caption{Heatmap showing the temporal patterns of gene expression in response to Activin (Experiment 2) for the candidate genes and the Nodal score.}
-\label{fig:reversibility_profile}
-\end{figure}
-
-And finally, Figure~\ref{fig:integrated_overview} shows an integrated overview of gene expression patterns for the candidate genes and the Nodal score across both experiments.
-
-
-\begin{figure}[t]
+\begin{subfigure}[t]{0.48\textwidth}
 \centering
-\includegraphics[width=\columnwidth]{results/q4_integrated_overview.pdf}
-\caption{Heatmap showing the integrated overview of gene expression patterns for the candidate genes and the Nodal score across both experiments.}
+\includegraphics[width=\textwidth]{results/q4_integrated_overview.pdf}
+\caption{SB50 at 60\,min.}
+\end{subfigure}\hfill
+\begin{subfigure}[t]{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{results/q4_integrated_overview_120min.pdf}
+\caption{SB50 at 120\,min.}
+\end{subfigure}
+\caption{Integrated overview: peak response timing vs.\ reversibility at two SB50 addition timepoints.}
 \label{fig:integrated_overview}
-\end{figure}
+\end{figure*}
 
-\subsection{ChIP-seq integration}
-% Two focused heatmaps: one for Nodal pathway + candidate genes, one for DUSP + FGF pathway genes.
+Figure~\ref{fig:integrated_overview} shows an integrated overview of gene expression patterns for the candidate genes and the Nodal score across both experiments. Each gene is characterised by its peak response timing in Experiment~1 and its reversibility upon SB50 addition in Experiment~2. The 60\,min and 120\,min panels allow comparison of how different SB50 addition times affect the reversibility of each gene's response, providing a direct readout of commitment timing at the single-gene level.
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{results/q4_chipseq_nodal_candidates.pdf}
-\caption{ChIP-seq binding evidence for Nodal score genes and candidate genes. Filled tiles indicate Smad2 or EomesA binding peaks; Foxh1 motif presence is shown separately.}
-\label{fig:chip_nodal_candidates}
-\end{figure}
+\noindent{\footnotesize\textbf{Output:} \texttt{q4\_chipseq\_candidates.csv}, \texttt{q4\_temporal\_clusters.csv}, \texttt{q4\_reversibility\_scores.csv}, \texttt{q4\_combined\_summary.csv}.}
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{results/q4_chipseq_dusp_fgf.pdf}
-\caption{ChIP-seq binding evidence for the DUSP phosphatase family, FGF direct targets, FGF ligands, and FGF receptors. This combined view replaces the earlier separate FGF and DUSP heatmaps.}
-\label{fig:chip_dusp_fgf}
-\end{figure}
+% NOTE: q4_candidate_validation.pdf removed (redundant with integrated overviews).
+% CSV: q4_candidate_validation.csv
 
-\subsection{Gene family temporal dynamics}
-% TODO: Write about temporal expression patterns of FGF ligands, DUSP family,
-% mesoderm/FGF-responsive genes, and FGF receptors in response to Activin.
+% NOTE: q4_gene_families_temporal.pdf removed (subset of grn_positive_controls.pdf).
+% CSV: q4_family_temporal_profiles.csv
+
+
+% ============================================================================
+% SECTION 7: FGF SIGNALING SCORES (Exp 2)
+% ============================================================================
+% Script: q4_fgf_score_exp2.R
+% CSV: q4_fgf_all_stats.csv
+%      q4_fgf_targets_score_per_sample.csv, q4_fgf_targets_score_stats.csv
+%      q4_fgf_ligands_score_per_sample.csv, q4_fgf_ligands_score_stats.csv
+%      q4_dusp_family_score_per_sample.csv, q4_dusp_family_score_stats.csv
+%      q4_mesoderm_score_per_sample.csv, q4_mesoderm_score_stats.csv
+% ============================================================================
+\section{FGF Signalling Scores}
+
+Following our second meeting, I decided to quantify FGF pathway activity as well across Experiment~2 conditions, I computed composite expression scores for four gene groups: FGF direct targets (etv4, etv5a, spry2, spry4), FGF ligands (fgf3, fgf8a, fgf17), DUSP phosphatases (dusp4, dusp6), and mesoderm markers (tbxta, tbx16), all of them extracted from papers and databases manually. Each score is computed analogously to the Nodal score---cumulative normalised counts across the gene set---and tested for differences between treatments using the same Kruskal-Wallis and pairwise Wilcoxon framework. Figure~\ref{fig:fgf_scores_combined} shows all four scores side-by-side. The FGF target score mirrors the Nodal score pattern: full Activin induces the highest activity, while earlier SB50 addition suppresses FGF signalling more effectively. The list, however, might benefit from some refinement, as most fo the panels show a high expression of the genes in the control replicates as well.
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=\textwidth]{results/q4_gene_families_temporal.pdf}
-\caption{Temporal expression dynamics of gene families (FGF targets, FGF ligands, DUSP phosphatases, mesoderm/FGF-responsive genes, FGF receptors) in response to 15\,ng/ml Activin in Experiment~1. Thin lines show individual genes; thick lines show family means.}
-\label{fig:gene_families}
+\includegraphics[width=\textwidth]{results/q4_fgf_scores_combined.pdf}
+\caption{Combined FGF signalling scores (targets, ligands, DUSPs, mesoderm) side-by-side across Exp~2 conditions. Each panel shows the cumulative normalised expression of gene sets, with statistical annotations as in the Nodal score analysis.}
+\label{fig:fgf_scores_combined}
 \end{figure*}
 
-\subsection{Integrated overview at 120\,min}
-% TODO: Write about repeating the integrated view (peak timing vs
-% reversibility) at 120 minutes of SB50 addition, in addition to 60 minutes.
+\noindent{\footnotesize\textbf{Output:} \texttt{q4\_fgf\_all\_stats.csv}, \texttt{q4\_fgf\_targets\_score\_per\_sample.csv}, \texttt{q4\_dusp\_family\_score\_per\_sample.csv}, \texttt{q4\_mesoderm\_score\_per\_sample.csv}.}
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{results/q4_integrated_overview_120min.pdf}
-\caption{Integrated overview of peak response timing vs.\ reversibility at SB50 addition after 120\,minutes, complementing the 60-minute analysis.}
-\label{fig:integrated_120}
-\end{figure}
+\subsection{Temporal dynamics by gene category (Exp~1)}
+% Script: grn_fgf_nodal_analysis.R
+% CSV: grn_temporal_profiles.csv
 
-\subsection{Cell migration DEGs}
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=\textwidth]{results/q4_migration_degs_temporal.pdf}
-\caption{Temporal expression of shared DEGs annotated to cell migration GO terms (GO:0016477, GO:0030334, GO:0040011) during Activin response, separated into upregulated (left) and downregulated (right) panels.}
-\label{fig:migration}
-\end{figure*}
-
-\subsection{Cell adhesion DEGs}
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=\textwidth]{results/q4_adhesion_degs_temporal.pdf}
-\caption{Temporal expression of shared DEGs annotated to cell adhesion (GO:0007155), excluding genes already shown in the migration panel. Upregulated (left) and downregulated (right) genes are shown separately.}
-\label{fig:adhesion}
-\end{figure*}
-
-% FGF signaling ChIP-seq subsection removed — content is now covered by
-% the combined DUSP+FGF heatmap in Figure~\ref{fig:chip_dusp_fgf}.
-
-\section{Molecular Function}
-
-Next, I performed a quick Gene Ontology enrichment analysis using the clusterProfiler package in R. I focused on the Molecular Function ontology and explored the top enriched terms for the different comparisons performed so far. Figure~\ref{fig:go_mf} shows a selection of interesting terms that were enriched in different comparisons. The Exp~1 figure shows the Gene Ontology terms of the DEGs of each Activin concentration at each timepoint compared to the non-induced control samples. It shows predominancy of terms related to growth, signalling pathways, and transcription. Interestingly, the terms related to signalling receptors appear in every condition except for the latest timepoint, regardless of concentration, suggesting a negative feedback loop whereby Activin at first prompts the transcription of signalling receptors, but later on these get downregulated again.
-
-
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=\textwidth]{results/go_mf_combined_publication.pdf}
-\caption{Molecular Function GO term enrichment analysis for Experiment 1 (top) and Experiment 2 (bottom). In Experiment 1, each panel corresponds to a different timepoint (60min, 120min, 240min), with different Activin concentrations (0ng/ml, 5ng/ml, 15ng/ml) compared to the control (0ng/ml). In Experiment 2, each panel corresponds to a different comparison: Activin vs.\ Control (left), SB50 vs.\ Control (centre), SB50 vs.\ Activin (right). Only the top 10 enriched terms per condition are shown.}
-\label{fig:go_mf}
-\end{figure*}
-
-\subsection{Comparative GO: Exp~2 with Exp~1 terms}
-% TODO: Write about showing the same top-15 Exp1 GO MF terms in Exp2
-% comparisons, for a direct visual comparison of pathway alterations.
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=\columnwidth]{results/go_exp2_comparative_exp1_terms.pdf}
-\caption{Exp~2 GO Molecular Function enrichment restricted to the top-15 terms identified in Exp~1, enabling direct comparison of pathway conservation across experiments.}
-\label{fig:go_comparative}
-\end{figure}
-
-\subsection{GO: Motility and cell adhesion}
-% TODO: Write about GO BP terms related to cell motility, migration, and
-% adhesion across conditions.
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=\columnwidth]{results/go_motility_adhesion_bp.pdf}
-\caption{GO Biological Process terms related to cell motility, migration, adhesion, and locomotion across Activin and SB50 conditions.}
-\label{fig:go_motility}
-\end{figure}
-
-\subsection{GO: SB50-specific genes}
-% TODO: Write about GO enrichment of genes exclusively regulated by SB50
-% (the green/SB50-specific category from the blocking analysis).
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=\columnwidth]{results/go_sb50_specific_bp.pdf}
-\caption{GO Biological Process enrichment for SB50-specific genes (not present as Activin-induced DEGs) at each SB50 timepoint.}
-\label{fig:go_sb50_specific}
-\end{figure}
-
-
-\section{FGF--Nodal Gene Regulatory Network}
-
-To investigate the regulatory crosstalk between Nodal/Activin and FGF signalling, I built a data-driven gene regulatory network (GRN) combining literature-curated edges with temporal correlation analyses from Experiment~1. Because exposure time---not Activin concentration---is the primary driver of transcriptomic changes in this dataset, all analyses focus on the 15\,ng/ml time course (15--240\,min vs.\ 0\,ng/ml controls). The analysis is motivated by the observation that Nodal activates FGF ligand transcription, yet prolonged Nodal exposure leads to FGF/ERK suppression via DUSPs, particularly Dusp4 (van Boxtel et~al.\ 2018), creating an \emph{incoherent feedforward loop}.
-
-\subsection{Positive controls: literature-validated pathway genes}
-
-To validate the temporal profiling framework, I first examined genes with well-established roles in the FGF--Nodal network (Figure~\ref{fig:grn_controls}). Nodal pathway genes (ndr1, ndr2, lefty1/2) activate earliest (15--30\,min), followed by Nodal-induced FGF ligands (fgf3, fgf17, fgf8a). FGF/MAPK feedback targets (etv4, etv5a, spry2, dusp6) respond next, confirming that Activin activates FGF signalling in this time course. Mesoderm genes (tbxta, tbx16) follow as expected for FGF-dependent targets. This sequential activation validates the analytical framework for candidate gene discovery.
+To complement the static Exp~2 scores above, I went back to Experiment~1 and plotted the temporal expression profiles (log$_2$FC, 15 vs 0\,ng/ml Activin) for each curated gene category separately. Figure~\ref{fig:grn_positive_controls} shows the result, faceted by category: Nodal pathway, FGF ligands, FGF/MAPK feedback, DUSP family, MAPK cascade, mesoderm (FGF-dependent), endoderm markers, BMP crosstalk, and Wnt crosstalk. The Nodal pathway genes respond the earliest and most strongly, as expected. FGF ligands (fgf3, fgf8a, fgf17) are activated downstream of Nodal with a slight delay, and FGF/MAPK feedback targets (etv4, spry2, spry4) follow shortly after. The DUSP family is interesting because it shows heterogeneous timing---dusp4 and dusp6 rise early alongside FGF targets, while dusp2 and dusp5 are delayed, possibly reflecting distinct regulatory inputs. Mesoderm genes (tbxta, tbx16, tbx6) require FGF and accordingly peak later. This figure essentially provides the Exp~1 temporal context for the static scores in Figure~\ref{fig:fgf_scores_combined}, and confirms that the gene group assignments behave as expected from the literature.
 
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{results/grn_positive_controls.pdf}
-\caption{Temporal expression dynamics of literature-validated pathway genes (log$_2$FC, 15 vs.\ 0\,ng/ml Activin). Thin lines: individual genes; thick lines: group means. The recovery of the expected activation sequence (Nodal $\to$ FGF ligands $\to$ FGF feedback $\to$ mesoderm) validates the temporal profiling approach.}
-\label{fig:grn_controls}
+\caption{Temporal expression dynamics of curated FGF--Nodal gene categories in Experiment~1 (15 vs 0\,ng/ml Activin). Each panel shows one gene category; thin lines are individual genes, thick lines are group means. Gene names are labelled at the 240\,min endpoint.}
+\label{fig:grn_positive_controls}
 \end{figure*}
 
-\subsection{Candidate pathway modules}
+\noindent{\footnotesize\textbf{Output:} \texttt{grn\_temporal\_profiles.csv}, \texttt{grn\_timing\_metrics.csv}, \texttt{grn\_gene\_universe.csv}.}
 
-Applying the identical framework to candidate gene groups reveals their temporal behaviour relative to the validated positive controls (Figure~\ref{fig:grn_candidates_temporal}). Of particular interest is the DUSP family: dusp6 responds immediately (consistent with its role as a direct FGF target), while dusp4 shows delayed activation---matching its proposed role as a Nodal-induced, rather than FGF-induced, negative regulator of ERK signalling. The Sprouty/Spred, BMP, and Wnt crosstalk modules provide additional context for pathway interactions.
+% ============================================================================
+% SECTION 8: GENE ONTOLOGY ENRICHMENT
+% ============================================================================
+% Scripts: go_analysis_simple.R, go_analysis_publication_plot.R,
+%          go_extended_analysis.R, go_term_direction_analysis.R
+% CSV: go_exp1_mf_all.csv, go_exp2_mf_all.csv
+%      go_exp2_comparative_terms.csv
+%      go_motility_adhesion_bp.csv
+%      go_all_bp_results.csv
+% ============================================================================
+\section{Gene Ontology Enrichment}
+
+Next, I performed a quick Gene Ontology enrichment analysis using the clusterProfiler package in R. I focused on the Molecular Function ontology and explored the top enriched terms for the different comparisons performed so far. Figure~\ref{fig:go_mf} shows a selection of interesting terms that were enriched in different comparisons. The Exp~1 figure shows the Gene Ontology terms of the DEGs of each Activin concentration at each timepoint compared to the non-induced control samples. It shows predominancy of terms related to growth, signalling pathways, and transcription. Interestingly, the terms related to signalling receptors appear in every condition except for the latest timepoint, regardless of concentration, suggesting a negative feedback loop whereby Activin at first prompts the transcription of signalling receptors, but later on these get downregulated again.
+
+\subsection{Molecular Function: Exp~1 and Exp~2}
+% Script: go_analysis_publication_plot.R
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=\textwidth]{results/grn_candidate_dynamics.pdf}
-\caption{Temporal dynamics of candidate and survey gene modules, plotted identically to the positive controls for direct comparison. The DUSP family shows heterogeneous timing: dusp6 is an immediate FGF target, whereas dusp4 peaks later, consistent with Nodal-driven induction.}
-\label{fig:grn_candidates_temporal}
+\includegraphics[width=\textwidth]{results/go_mf_combined_publication.pdf}
+\caption{Molecular Function GO term enrichment analysis for Experiment~1 (top) and Experiment~2 (bottom). In Experiment~1, each panel corresponds to a different timepoint (60min, 120min, 240min), with different Activin concentrations (0ng/ml, 5ng/ml, 15ng/ml) compared to the control (0ng/ml). In Experiment~2, each panel corresponds to a different comparison: Activin vs.\ Control (left), SB50 vs.\ Control (centre), SB50 vs.\ Activin (right). Only the top 10 enriched terms per condition are shown.}
+\label{fig:go_mf}
 \end{figure*}
 
-\subsection{Activation timeline}
+\subsection{Comparative GO: Exp~2 with Exp~1 terms}
+% Script: go_extended_analysis.R
+% CSV: go_exp2_comparative_terms.csv
 
-To visualise the sequential activation of GRN components, Figure~\ref{fig:grn_timeline} shows the onset (first timepoint with $|\text{log}_2\text{FC}| > 0.5$) and peak response time for selected genes, ordered chronologically. The timeline reveals the temporal cascade: Nodal ligands $\to$ FGF ligands $\to$ FGF/MAPK feedback $\to$ DUSPs $\to$ mesoderm/endoderm effectors.
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=\columnwidth]{results/grn_activation_timeline.pdf}
-\caption{Activation timeline: onset (circle) to peak (diamond) for selected GRN genes, ordered by onset time. Colour indicates pathway membership. The delayed onset of dusp4 relative to direct FGF targets is consistent with its proposed role as a Nodal-induced brake on FGF/ERK.}
-\label{fig:grn_timeline}
-\end{figure}
-
-\subsection{Temporal correlation structure}
-
-I computed pairwise Pearson correlations of temporal profiles (at 15\,ng/ml) across GRN genes. Genes anti-correlated with FGF/MAPK feedback targets, yet co-expressed with Nodal pathway genes, are strong candidates for mediating Nodal-driven FGF inhibition. Figure~\ref{fig:grn_cor_heatmap} shows the correlation structure among selected genes spanning multiple pathway modules.
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=\columnwidth]{results/grn_correlation_heatmap.pdf}
-\caption{Temporal profile correlation matrix for selected FGF--Nodal GRN genes. Blue: positive correlation (co-activation); red: anti-correlation. The clustering reveals pathway modules and identifies candidate genes whose temporal profiles oppose FGF readouts.}
-\label{fig:grn_cor_heatmap}
-\end{figure}
-
-\subsection{Candidate negative feedback scoring}
-
-Each gene received a composite score integrating five evidence streams: (i) anti-correlation with FGF feedback targets (FDR-significant only), (ii) positive correlation with Nodal pathway (FDR-significant only), (iii) delayed onset relative to FGF targets, (iv) Smad2/EomesA ChIP-seq binding (Nelson et~al.\ 2014), and (v) late upregulation pattern. Figure~\ref{fig:grn_candidates_score} shows the component-level breakdown for the top 20 candidates, making the scoring transparent and self-explanatory.
+To directly assess whether the same molecular functions are perturbed in Experiment~2 as in Experiment~1, I restricted the plotting of Exp~2 GO enrichment to the top-15 MF terms identified in Exp~1. Figure~\ref{fig:go_comparative} shows the result. Expectedly, the terms related to signalling do not appear enriched in the activin group, as it encapsulates samples treated with activin and collected at 240 minutes, when those receptors may already be downregualted. The SB50 at 60 minutes vs baseline does show enrichemnt of those receptors, concommitant with the fact that this is when more genes are sensitive to acitvin regulation, and receptors might get enough signal to actiavte, but not enoich exposure to downregulate afterwards.
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=\textwidth]{results/grn_candidate_scoring.pdf}
-\caption{Top 20 candidate negative feedback regulators with scoring component breakdown. Left tile heatmap: individual component scores (0--1 scale) for anti-FGF correlation, pro-Nodal correlation, delayed onset, ChIP-seq binding, and late upregulation. Right bar chart: composite score (equally-weighted mean of all five components). Correlations are gated by Benjamini--Hochberg FDR $< 0.05$.}
-\label{fig:grn_candidates_score}
+\includegraphics[width=\textwidth]{results/go_exp2_comparative_exp1_terms.pdf}
+\caption{Exp~2 GO Molecular Function enrichment restricted to the top-15 terms identified in Exp~1, enabling direct comparison of pathway conservation across experiments.}
+\label{fig:go_comparative}
 \end{figure*}
 
-\subsection{Gene regulatory network}
+\subsection{GO: Motility and cell adhesion}
+% Script: go_extended_analysis.R
+% CSV: go_motility_adhesion_bp.csv
 
-Figure~\ref{fig:grn_network} presents the decluttered core GRN ($\sim$28 genes) combining literature-curated regulatory edges with data-driven correlations ($|r| > 0.85$, FDR $< 0.05$). Critically, literature edges are visually distinguished by whether our expression data validates them: bold edges indicate cases where the observed temporal correlation matches the expected regulatory direction (activation $\rightarrow$ positive $r$; inhibition $\rightarrow$ negative $r$) at FDR $< 0.05$.
+Given the biological interest in cell motility and adhesion during gastrulation, I specifically extracted GO Biological Process terms related to cell motility, migration, adhesion, and locomotion. Figure~\ref{fig:go_motility} combines two complementary views of SB50 effects on these terms: comparisons against baseline (left group) and comparisons against Activin (right group).
+
+The two views reveal a coherent picture. In the \textbf{SB50 vs Activin} comparisons (right), motility terms are strongly enriched at SB50@60\,min (22 terms) but diminish at 120\,min (12 terms) and nearly vanish at 180\,min (3 terms). This means that SB50 at 60\,min creates a large transcriptomic \emph{difference} from full Activin---i.e.\ it successfully blocks the motility programme---but at later timepoints SB50 can no longer block these genes (they are committed) and the conditions look similar.
+
+In the \textbf{SB50 vs Baseline} comparisons (left), motility terms are also present at SB50@60\,min, which might seem contradictory. However, examining the underlying genes (e.g.\ for ``ameboidal-type cell migration'') shows that the two comparisons capture \emph{different gene subsets}: SB50@60 vs Baseline detects early-response genes that were activated during the first 60\,min of Activin exposure and had not yet returned to baseline (e.g.\ \textit{wnt8a}, \textit{wnt5b}, \textit{bmp2b}, \textit{cdh2}), while SB50@60 vs Activin detects late-response genes that SB50 successfully prevented from reaching full Activin levels (e.g.\ \textit{sema6d}, \textit{fzd7a}, \textit{tbx1}, \textit{pcdh18a}). Only about half of the genes overlap between the two comparisons.
+
+This establishes that SB50@60\,min produces an \emph{intermediate state}: partway between baseline and full Activin, with early motility genes already activated but late motility effectors still blocked. As the SB50 administration is delayed to 120 and 180\,min, the SB50 vs Baseline columns gain motility terms (more genes have committed) while the SB50 vs Activin columns lose them (fewer genes remain blockable). This is consistent with the observed phenotype: no protrusions at SB50@60\,min (late effectors blocked), but protrusions at SB50@120/180\,min (effectors committed). The gene-level commitment dynamics are examined further in Section~\ref{sec:motility_commitment} and Figure~\ref{fig:motility_commitment}.
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=\textwidth]{results/grn_network_graph.pdf}
-\caption{FGF--Nodal core gene regulatory network. Nodes are coloured by pathway group. Bold solid edges: literature relationships validated by expression data (FDR $< 0.05$, matching sign). Thin solid edges: literature relationships not confirmed. Dashed edges: data-driven temporal co-/anti-expression ($|r| > 0.85$, FDR $< 0.05$). Blue = activation/co-expression; red = inhibition/anti-expression.}
-\label{fig:grn_network}
+\includegraphics[width=\textwidth]{results/go_motility_adhesion_bp.pdf}
+\caption{GO Biological Process terms related to cell motility, migration, adhesion, and locomotion. Left group (green): SB50 vs baseline control---presence of dots indicates the motility programme remains active despite SB50 treatment. Right group (orange): SB50 vs Activin---presence of dots indicates SB50 successfully blocked those pathways. The gradient from SB50@60\textsuperscript{\prime} to SB50@180\textsuperscript{\prime} shows progressive commitment of motility genes.}
+\label{fig:go_motility}
 \end{figure*}
 
+\subsection{Direction of motility GO genes}
+% Script: go_extended_analysis.R (section 3b)
+% CSV: go_motility_gene_direction.csv
+
+If our interpretation is correct---that SB50@60 vs Activin captures genes whose activation SB50 successfully blocked---then those genes should be \emph{downregulated} in the SB50 condition relative to Activin. To test this, I extracted all genes from the enriched motility/migration GO terms and looked up their log$_2$FC direction in each comparison (Figure~\ref{fig:go_motility_direction}). The result is clear: in the SB50 vs Activin comparisons, motility genes are overwhelmingly \emph{downregulated}, confirming that SB50 blocked the upregulation of these genes. In the SB50 vs Baseline comparisons, the direction is mixed at SB50@60 min---consistent with the intermediate state, where some genes are still above baseline (upregulated) and others are already diverging from the Activin trajectory---and shifts toward predominant upregulation at later timepoints as the genes commit.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.85\textwidth]{results/go_motility_direction.pdf}
+\caption{Direction of differential expression for genes underlying enriched cell motility GO BP terms. In SB50 vs Activin comparisons (right), the vast majority of motility genes are downregulated, confirming that SB50 blocked their activation. In SB50 vs Baseline comparisons (left), the mixed direction at early timepoints reflects the intermediate state.}
+\label{fig:go_motility_direction}
+\end{figure*}
+
+\noindent{\footnotesize\textbf{Output:} \texttt{go\_motility\_adhesion\_bp.csv}, \texttt{go\_motility\_gene\_direction.csv}, \texttt{go\_exp2\_comparative\_terms.csv}, \texttt{go\_all\_bp\_results.csv}.}
+
+% \subsection{GO direction analysis}
+% Script: go_term_direction_analysis.R
+% CSV: exp2_go_genes_significant.csv, exp2_go_enrichment_summary.csv
+% FIGURE: results/exp2_go_genes_direction.pdf  % NOT YET GENERATED — run go_term_direction_analysis.R
+
+
+% ============================================================================
+% SECTION 9: MOTILITY & COMMITMENT
+% ============================================================================
+% Script: q5_motility_commitment.R
+% CSV: q5_motility_commitment_fisher.csv
+%      q5_motility_gene_tracking.csv
+%      q5_motility_delayed_commitment_genes.csv
+%      q5_motility_delayed_expression.csv
+% ============================================================================
+\section{Motility \& Cell Commitment}
+\label{sec:motility_commitment}
+
+The GO analysis in Figure~\ref{fig:go_motility} established that SB50@60\,min creates an intermediate state for motility genes, but did not resolve which individual genes commit at which timepoint. To address this, I tracked 70 Activin-responsive motility/migration genes (GO-annotated) across the three SB50 timepoints and compared their commitment dynamics with the genome-wide background.
+
+Figure~\ref{fig:motility_commitment}A shows that motility genes are \emph{less blocked} than the genome-wide average at all timepoints: at 60\,min, 58.6\% of motility genes are blocked vs 79.3\% of other DEGs (Fisher's exact test, OR\,=\,0.37, $p$\,=\,$1.6 \times 10^{-4}$). This means the motility programme commits to the Activin state \emph{earlier} than other gene categories---even at 60\,min, $\sim$41\% of motility genes are already committed, compared to only $\sim$21\% of background genes.
+
+Panel~B tracks individual genes across timepoints. Of the 70 motility genes, 28 are committed at all three timepoints (early commitment, e.g.\ \textit{chrd}, \textit{sox32}, \textit{has2}), 31 show delayed commitment (blocked at 60\,min but freed by 120 or 180\,min, e.g.\ \textit{fzd7a}, \textit{tbx1}, \textit{foxh1}, \textit{sema3fb}, \textit{gata6}), and 10 remain always blocked.
+
+Panel~C shows the expression continuum: delayed-commitment genes sit at an intermediate $\log_2$ fold-change level under SB50@60\,min---above baseline but below full Activin---confirming the intermediate state inferred from the GO analysis. By SB50@120/180\,min, these genes reach Activin-level expression, consistent with the appearance of protrusions at those timepoints. Panel~D shows the Exp1 temporal profiles of the delayed-commitment genes, confirming they are late-activating under continuous Activin exposure.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{results/q5_motility_commitment.pdf}
+\caption{Motility gene commitment to the Activin programme. (A)~Proportion of motility genes in each blocking category at each SB50 timepoint---motility genes commit earlier than the genome-wide background. (B)~Per-gene tracking of delayed-commitment genes (blocked at 60\,min, freed later). (C)~Mean $\log_2$ fold-change (vs baseline) of motility genes across Exp2 conditions, stratified by commitment class: early-committed genes (red) stay high under all SB50 timepoints; delayed-commitment genes (orange) show an intermediate state at SB50@60\textsuperscript{\prime} and reach Activin levels by 120--180\textsuperscript{\prime}; always-blocked genes (blue) return toward baseline. (D)~Exp1 temporal profiles of delayed-commitment genes.}
+\label{fig:motility_commitment}
+\end{figure*}
+
+\noindent{\footnotesize\textbf{Output:} \texttt{q5\_motility\_commitment\_fisher.csv}, \texttt{q5\_motility\_gene\_tracking.csv}, \texttt{q5\_motility\_delayed\_commitment\_genes.csv}.}
+
+% SECTION 10 (FGF--Nodal GRN) REMOVED.
+% Script: grn_fgf_nodal_analysis.R
+% CSV: grn_gene_universe.csv, grn_temporal_profiles.csv, grn_timing_metrics.csv,
+%      grn_fgf_correlation_ranking.csv, grn_candidate_scores.csv, grn_novel_feedback_candidates.csv
+% Figures: grn_positive_controls.pdf (only one generated; others not yet implemented)
+
+
+% ============================================================================
+% SECTION 11: CONCLUSION
+% ============================================================================
 \section{Conclusion}
 
-So far I think this is one of the best bulk rnaseq datasets I have ever worked with in terms of quality: showing a high consistency in the transcriptomic response to Activin, specifically noting that exposure time is a more significant driver of gene expression changes than concentration. The analysis of the Nodal score and SB50 inhibitor treatments suggests a time-dependent cell commitment process: early inhibition effectively blocks Activin-induced genes, but later inhibition fails to reverse the phenotype as cells become "committed" to their fate. Finally, Gene Ontology enrichment points toward a negative feedback loop in signaling receptors, which are initially upregulated by Activin but subsequently downregulated, a trend that SB50 can only partially rescue depending on the timing of the intervention.
+So far I think this is one of the best bulk RNA-seq datasets I have ever worked with in terms of quality: showing a high consistency in the transcriptomic response to Activin, specifically noting that exposure time is a more significant driver of gene expression changes than concentration. The analysis of the Nodal score and SB50 inhibitor treatments suggests a time-dependent cell commitment process: early inhibition effectively blocks Activin-induced genes, but later inhibition fails to reverse the phenotype as cells become ``committed'' to their fate. The GO enrichment analysis points toward a negative feedback loop in signaling receptors, which are initially upregulated by Activin but subsequently downregulated, a trend that SB50 can only partially rescue depending on the timing of the intervention. Integration of ChIP-seq data and temporal profiling identifies candidate genes involved in the FGF--Nodal crosstalk, with the DUSP family showing particularly heterogeneous timing. The FGF signalling scores confirm that the FGF pathway mirrors the Nodal commitment gradient, and the motility analysis provides initial evidence for differential commitment timing among functional gene categories.
 
-% --- Full width figure (spans both columns) ---
-% \begin{figure*}[t]
-%     \centering
-%     \includegraphics[width=\textwidth]{path/to/image.pdf}
-%     \caption{Caption for full-width figure spanning both columns.}
-%     \label{fig:fullwidth}
-% \end{figure*}
 
-% --- Two subfigures side by side (full width) ---
-% \begin{figure*}[t]
-%     \centering
-%     \begin{subfigure}[t]{0.48\textwidth}
-%         \centering
-%         \includegraphics[width=\textwidth]{path/to/imageA.pdf}
-%         \caption{Panel A}
-%         \label{fig:panelA}
-%     \end{subfigure}
-%     \hfill
-%     \begin{subfigure}[t]{0.48\textwidth}
-%         \centering
-%         \includegraphics[width=\textwidth]{path/to/imageB.pdf}
-%         \caption{Panel B}
-%         \label{fig:panelB}
-%     \end{subfigure}
-%     \caption{Overall caption for both panels.}
-%     \label{fig:panels}
-% \end{figure*}
-
+% ============================================================================
+% FIGURES NOT YET GENERATED (require extending R scripts):
+% ============================================================================
+% grn_candidate_dynamics.pdf      — grn_fgf_nodal_analysis.R (only produces grn_positive_controls.pdf)
+% grn_activation_timeline.pdf     — grn_fgf_nodal_analysis.R
+% grn_correlation_heatmap.pdf     — grn_fgf_nodal_analysis.R
+% grn_candidate_scoring.pdf       — grn_fgf_nodal_analysis.R
+% grn_network_graph.pdf           — grn_fgf_nodal_analysis.R
+% exp2_go_genes_direction.pdf     — go_term_direction_analysis.R (script exists, needs running)
+% go_sb50_specific_bp.pdf         — go_extended_analysis.R (ggsave exists, may need re-running)
+% q4_chipseq_binding_heatmap.pdf  — SUPERSEDED by q4_chipseq_nodal_candidates.pdf + q4_chipseq_dusp_fgf.pdf
+% q4_migration_degs_temporal.pdf  — no generating code exists
+% q4_adhesion_degs_temporal.pdf   — no generating code exists
 % ============================================================================
 
 \end{document}
