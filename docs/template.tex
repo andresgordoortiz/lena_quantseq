@@ -128,16 +128,14 @@ I also quickly compared the differences between the GRCz11 and GRCz12tu builds, 
 \subsection{Re-analysis of Experiment 1 (Maria's data)}
 % Script: exp1_maria_reanalaysis.R
 
-I started by quickly re-exploring one of Maria's previous analyses to 1) ensure that I could reproduce her results and 2) asses the quality and cohesivity among samples. Figure~\ref{fig:nodal_heatmap_averaged} shows a result from Experiment~1, whereby the exposure time, but not the concentration, of Activin led to significant changes in the expression of genes from the Nodal score.
+I started by quickly re-exploring one of Maria's previous analyses to 1) ensure that I could reproduce her results and 2) asses the quality and cohesivity among samples. Figure~\ref{fig:nodal_heatmap_exp1} shows a result from Experiment~1, whereby the exposure time, but not the concentration, of Activin led to significant changes in the expression of genes from the Nodal score.
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=1.1\columnwidth]{results/nodal_heatmap_exp1_averaged.pdf}
-\caption{Z-scored Nodal score gene expression across timepoints and Activin concentrations in Exp~1 (condition-averaged).}
-\label{fig:nodal_heatmap_averaged}
+\includegraphics[width=1.1\columnwidth]{results/nodal_heatmap_exp1.pdf}
+\caption{Z-scored Nodal score gene expression across timepoints and Activin concentrations in Exp~1 (per-sample).}
+\label{fig:nodal_heatmap_exp1}
 \end{figure}
-
-% NOTE: results/nodal_heatmap_exp1_aggregated.pdf also available (per-sample version)
 
 \noindent{\footnotesize\textbf{Output:} \texttt{compare\_annotations/my\_genes\_annotation\_check.csv}, \texttt{SUMMARY\_REPORT.txt}.}
 
