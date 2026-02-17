@@ -209,6 +209,7 @@ baseline <- exp2[exp2$concentration == "0ngml_DMSO", ]
 activin_exp2 <- exp2[exp2$concentration == "15ngml_DMSO", ]
 
 motility_adhesion_go <- list()
+de_results_store <- list()   # store DESeq2 results for direction analysis
 
 cat("Running BP enrichment for motility/adhesion terms...\n")
 
@@ -216,15 +217,26 @@ for (time in c(60, 120, 180)) {
   sb50 <- exp2[exp2$concentration == "SB50" & exp2$time_min == time, ]
   if (nrow(sb50) < 2) next
 
-  # vs Activin
-  name <- paste0("SB50_", time, "min_vs_Activin")
-  res <- run_deseq_go(sb50, activin_exp2)
-  de_genes <- res$gene[res$padj < 0.05 & abs(res$log2FoldChange) >= 1]
+  # vs Baseline: presence of terms = motility programme still active
+  name_bl <- paste0("SB50_", time, "min_vs_Baseline")
+  res_bl <- run_deseq_go(sb50, baseline)
+  de_results_store[[name_bl]] <- res_bl
+  de_bl <- res_bl$gene[res_bl$padj < 0.05 & abs(res_bl$log2FoldChange) >= 1]
+  go_bp_bl <- run_go(de_bl, "BP")
+  if (!is.null(go_bp_bl)) {
+    motility_adhesion_go[[name_bl]] <- go_bp_bl %>%
+      mutate(comparison = name_bl, time_min = time)
+  }
 
-  go_bp <- run_go(de_genes, "BP")
-  if (!is.null(go_bp)) {
-    motility_adhesion_go[[name]] <- go_bp %>%
-      mutate(comparison = name, time_min = time)
+  # vs Activin: presence of terms = SB50 successfully blocked those pathways
+  name_act <- paste0("SB50_", time, "min_vs_Activin")
+  res_act <- run_deseq_go(sb50, activin_exp2)
+  de_results_store[[name_act]] <- res_act
+  de_act <- res_act$gene[res_act$padj < 0.05 & abs(res_act$log2FoldChange) >= 1]
+  go_bp_act <- run_go(de_act, "BP")
+  if (!is.null(go_bp_act)) {
+    motility_adhesion_go[[name_act]] <- go_bp_act %>%
+      mutate(comparison = name_act, time_min = time)
   }
 }
 
@@ -268,13 +280,16 @@ if (nrow(motility_terms) > 0) {
   write_csv(motility_terms, results_path("go_motility_adhesion_bp.csv"))
   cat("Saved:", results_path("go_motility_adhesion_bp.csv"), "\n")
 
-  # Plot
+  # Single combined plot: all 8 comparisons in one figure
+  # Left group (vs Baseline): dots = motility programme still active
+  # Right group (vs Activin): dots = SB50 successfully blocked motility
   motility_terms <- motility_terms %>%
     mutate(
       neg_log_p = -log10(p.adjust),
       Description_short = str_wrap(Description, width = 45),
       comparison = factor(comparison, levels = c(
         "Exp1_15ngml_240min", "Activin_vs_Baseline",
+        "SB50_60min_vs_Baseline", "SB50_120min_vs_Baseline", "SB50_180min_vs_Baseline",
         "SB50_60min_vs_Activin", "SB50_120min_vs_Activin", "SB50_180min_vs_Activin"
       ))
     )
@@ -286,7 +301,25 @@ if (nrow(motility_terms) > 0) {
     pull(Description_short)
   motility_terms$Description_short <- factor(motility_terms$Description_short, levels = term_order)
 
+  # Background rectangles: highlight the two SB50 comparison groups
+  # vs Baseline columns: positions 3-5, vs Activin columns: positions 6-8
   p_motility <- ggplot(motility_terms, aes(x = comparison, y = Description_short)) +
+    # Shaded backgrounds to group comparison types
+    annotate("rect", xmin = 0.5, xmax = 2.5, ymin = -Inf, ymax = Inf,
+             fill = "grey90", alpha = 0.4) +
+    annotate("rect", xmin = 2.5, xmax = 5.5, ymin = -Inf, ymax = Inf,
+             fill = "#E8F5E9", alpha = 0.4) +
+    annotate("rect", xmin = 5.5, xmax = 8.5, ymin = -Inf, ymax = Inf,
+             fill = "#FFF3E0", alpha = 0.4) +
+    # Group labels at top
+    annotate("text", x = 1.5, y = Inf, label = "Activin effect",
+             vjust = -1.5, fontface = "bold", size = 3.5, color = "grey30") +
+    annotate("text", x = 4, y = Inf,
+             label = "SB50 vs Baseline\n(dots = still active)",
+             vjust = -0.8, fontface = "bold", size = 3, color = "#2E7D32") +
+    annotate("text", x = 7, y = Inf,
+             label = "SB50 vs Activin\n(dots = blocked by SB50)",
+             vjust = -0.8, fontface = "bold", size = 3, color = "#E65100") +
     geom_point(aes(size = Count, fill = neg_log_p),
                shape = 21, color = "white", stroke = 0.6) +
     scale_fill_gradient(low = "#80CDC1", high = "#01665E",
@@ -294,16 +327,19 @@ if (nrow(motility_terms) > 0) {
     scale_size_continuous(range = c(3, 10), name = "Genes",
                           breaks = scales::breaks_pretty(n = 4)) +
     guides(size = guide_legend(override.aes = list(fill = "grey40"))) +
-    scale_x_discrete(labels = c(
-      "Exp1_15ngml_240min" = "Exp1\n240'",
-      "Activin_vs_Baseline" = "Activin",
-      "SB50_60min_vs_Activin" = "SB50\n60'",
-      "SB50_120min_vs_Activin" = "SB50\n120'",
-      "SB50_180min_vs_Activin" = "SB50\n180'"
+    scale_x_discrete(drop = FALSE, labels = c(
+      "Exp1_15ngml_240min"      = "Exp1\nActivin 240'\nvs ctrl",
+      "Activin_vs_Baseline"     = "Exp2\nActivin 240'\nvs ctrl",
+      "SB50_60min_vs_Baseline"  = "SB50 @ 60'\nvs ctrl",
+      "SB50_120min_vs_Baseline" = "SB50 @ 120'\nvs ctrl",
+      "SB50_180min_vs_Baseline" = "SB50 @ 180'\nvs ctrl",
+      "SB50_60min_vs_Activin"   = "SB50 @ 60'\nvs Activin",
+      "SB50_120min_vs_Activin"  = "SB50 @ 120'\nvs Activin",
+      "SB50_180min_vs_Activin"  = "SB50 @ 180'\nvs Activin"
     )) +
-    labs(x = "", y = "",
+    labs(x = NULL, y = "",
          title = "GO Biological Process: Motility & Cell Adhesion",
-         subtitle = "Terms containing: motility, migration, adhesion, locomotion, chemotaxis") +
+         subtitle = "Left: motility programme activation (vs ctrl)  |  Right: motility blocked by SB50 (vs Activin)") +
     theme_minimal(base_size = 11, base_family = "Helvetica") +
     theme(
       panel.grid.major.y = element_line(color = "grey85", linewidth = 0.3),
@@ -311,15 +347,166 @@ if (nrow(motility_terms) > 0) {
       panel.grid.minor = element_blank(),
       panel.border = element_rect(color = "grey50", fill = NA, linewidth = 0.6),
       axis.text.y = element_text(size = 8.5),
-      axis.text.x = element_text(size = 9, face = "bold"),
+      axis.text.x = element_text(size = 8, face = "bold"),
       legend.position = "right",
       plot.title = element_text(size = 13, face = "bold", hjust = 0.5),
-      plot.subtitle = element_text(size = 9, hjust = 0.5, color = "grey50")
+      plot.subtitle = element_text(size = 9, hjust = 0.5, color = "grey40"),
+      plot.margin = margin(t = 30, r = 10, b = 10, l = 10)
     )
 
   ggsave(results_path("go_motility_adhesion_bp.pdf"), p_motility,
-         width = 10, height = 7)
+         width = 13, height = 8)
   cat("Saved:", results_path("go_motility_adhesion_bp.pdf"), "\n")
+
+  # ===========================================================================
+  # 3b. DIRECTION ANALYSIS: are motility GO genes up or downregulated?
+  # ===========================================================================
+  # Hypothesis: genes enriched in SB50@60 vs Activin should be DOWNREGULATED
+  # (lower in SB50 than in Activin → SB50 successfully blocked them).
+
+  cat("\n========== MOTILITY GENE DIRECTION ANALYSIS ==========\n")
+
+  # Extract unique genes from motility GO terms per comparison
+  motility_gene_direction <- motility_terms %>%
+    filter(grepl("vs_Activin|vs_Baseline|Activin_vs_Baseline", comparison)) %>%
+    mutate(comparison = as.character(comparison)) %>%
+    dplyr::select(comparison, geneID) %>%
+    mutate(genes = strsplit(geneID, "/")) %>%
+    tidyr::unnest(genes) %>%
+    dplyr::select(comparison, gene = genes) %>%
+    distinct()
+
+  # Join with DESeq2 results to get log2FC and direction
+  # Also store Activin vs Baseline results
+  de_results_store[["Activin_vs_Baseline"]] <- res_ab
+
+  motility_gene_direction <- motility_gene_direction %>%
+    rowwise() %>%
+    mutate(
+      log2FC = {
+        de <- de_results_store[[comparison]]
+        if (!is.null(de) && gene %in% de$gene) {
+          de$log2FoldChange[de$gene == gene]
+        } else NA_real_
+      },
+      padj = {
+        de <- de_results_store[[comparison]]
+        if (!is.null(de) && gene %in% de$gene) {
+          de$padj[de$gene == gene]
+        } else NA_real_
+      }
+    ) %>%
+    ungroup() %>%
+    filter(!is.na(log2FC)) %>%
+    mutate(
+      direction = ifelse(log2FC > 0, "Upregulated", "Downregulated"),
+      significant = padj < 0.05 & abs(log2FC) >= 1
+    )
+
+  # Summarise direction per comparison
+  dir_summary <- motility_gene_direction %>%
+    filter(significant) %>%
+    group_by(comparison, direction) %>%
+    summarise(n = n(), .groups = "drop") %>%
+    tidyr::complete(comparison, direction, fill = list(n = 0)) %>%
+    group_by(comparison) %>%
+    mutate(total = sum(n), pct = n / total * 100) %>%
+    ungroup()
+
+  cat("\nDirection of significant motility GO genes per comparison:\n")
+  print(dir_summary)
+
+  # Also compute median log2FC per comparison
+  median_lfc <- motility_gene_direction %>%
+    filter(significant) %>%
+    group_by(comparison) %>%
+    summarise(median_log2FC = median(log2FC), mean_log2FC = mean(log2FC),
+              n_genes = n(), .groups = "drop")
+  cat("\nMedian log2FC of motility genes per comparison:\n")
+  print(median_lfc)
+
+  # ---- Plot: direction bar chart (mirrored style from go_term_direction_analysis.R) ----
+
+  comparison_order <- c(
+    "Activin_vs_Baseline",
+    "SB50_60min_vs_Baseline", "SB50_120min_vs_Baseline", "SB50_180min_vs_Baseline",
+    "SB50_60min_vs_Activin", "SB50_120min_vs_Activin", "SB50_180min_vs_Activin"
+  )
+  comparison_labels <- c(
+    "Activin_vs_Baseline"      = "Activin\nvs ctrl",
+    "SB50_60min_vs_Baseline"   = "SB50 @ 60'\nvs ctrl",
+    "SB50_120min_vs_Baseline"  = "SB50 @ 120'\nvs ctrl",
+    "SB50_180min_vs_Baseline"  = "SB50 @ 180'\nvs ctrl",
+    "SB50_60min_vs_Activin"    = "SB50 @ 60'\nvs Activin",
+    "SB50_120min_vs_Activin"   = "SB50 @ 120'\nvs Activin",
+    "SB50_180min_vs_Activin"   = "SB50 @ 180'\nvs Activin"
+  )
+
+  dir_plot_data <- dir_summary %>%
+    filter(comparison %in% comparison_order) %>%
+    mutate(
+      comparison = factor(comparison, levels = comparison_order),
+      n_plot = ifelse(direction == "Downregulated", -n, n)
+    )
+
+  # Total gene counts per comparison for annotation
+  total_counts <- dir_plot_data %>%
+    group_by(comparison) %>%
+    summarise(total = total[1], .groups = "drop")
+
+  # Dynamic y-axis limits based on max gene count
+  max_n <- max(abs(dir_plot_data$n_plot), na.rm = TRUE)
+  y_lim <- ceiling(max_n * 1.3)
+
+  p_direction <- ggplot(dir_plot_data, aes(x = comparison, y = n_plot, fill = direction)) +
+    geom_hline(yintercept = 0, color = "grey30", linewidth = 0.5) +
+    # Background shading
+    annotate("rect", xmin = 0.5, xmax = 1.5, ymin = -Inf, ymax = Inf,
+             fill = "#B2182B", alpha = 0.06) +
+    annotate("rect", xmin = 1.5, xmax = 4.5, ymin = -Inf, ymax = Inf,
+             fill = "#2166AC", alpha = 0.06) +
+    annotate("rect", xmin = 4.5, xmax = 7.5, ymin = -Inf, ymax = Inf,
+             fill = "#1B7837", alpha = 0.06) +
+    geom_col(width = 0.7, color = "white", linewidth = 0.3) +
+    geom_text(aes(label = abs(n)),
+              size = 3.5, fontface = "bold", color = "grey20",
+              vjust = ifelse(dir_plot_data$direction == "Upregulated", -0.5, 1.5)) +
+    # Total gene count at top
+    geom_text(data = total_counts,
+              aes(x = comparison, y = y_lim * 0.95, label = paste0("n=", total)),
+              inherit.aes = FALSE, size = 3, fontface = "italic", color = "grey50") +
+    scale_fill_manual(
+      values = c("Upregulated" = "#B2182B", "Downregulated" = "#2166AC"),
+      name = ""
+    ) +
+    scale_x_discrete(labels = comparison_labels) +
+    scale_y_continuous(limits = c(-y_lim, y_lim),
+                       labels = function(x) abs(x)) +
+    labs(
+      x = NULL,
+      y = "Number of significant motility genes",
+      title = "Direction of motility GO genes across comparisons",
+      subtitle = "Genes from enriched motility/migration/adhesion GO BP terms\nDownregulated in SB50 vs Activin = successfully blocked by SB50"
+    ) +
+    theme_minimal(base_size = 11, base_family = "Helvetica") +
+    theme(
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border = element_rect(color = "grey50", fill = NA, linewidth = 0.6),
+      axis.text.x = element_text(size = 9, face = "bold"),
+      legend.position = "top",
+      plot.title = element_text(size = 13, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 9, hjust = 0.5, color = "grey40"),
+      plot.margin = margin(t = 10, r = 10, b = 10, l = 10)
+    )
+
+  ggsave(results_path("go_motility_direction.pdf"), p_direction,
+         width = 10, height = 7)
+  cat("Saved:", results_path("go_motility_direction.pdf"), "\n")
+
+  write_csv(motility_gene_direction, results_path("go_motility_gene_direction.csv"))
+  cat("Saved:", results_path("go_motility_gene_direction.csv"), "\n")
+
 } else {
   cat("  No motility/adhesion GO BP terms found with current DEG thresholds.\n")
 }

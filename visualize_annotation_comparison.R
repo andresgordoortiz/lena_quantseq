@@ -2,38 +2,32 @@
 # Visualize Genome Annotation Comparison: GRCz11 vs GRCz12tu
 # ============================================================================
 #
-# This script visualizes the output from comapre_annotations.sh
-# Run the bash script first to generate the required input files
+# This script visualizes the output from compare_annotations.sh and
+# check_degs_annotation.sh.
 #
-# Usage:
-#   1. Set ANNOTATION_DIR to the output directory from the bash script
-#   2. (Optional) Add your genes of interest to MY_GENES vector
-#   3. Run the script AFTER RUNNING Q3 SCRIPT
+# Prerequisites:
+#   1. Run compare_annotations.sh on the cluster (general annotation diff)
+#   2. Run check_degs_annotation.sh on the cluster (DEG-specific check)
+#   3. Copy compare_annotations/ back to this project directory
+#
+# No need to run any other analysis script first.
 #
 
-source("preprocess.R")
+library(readr)
+library(tidyverse)
+library(ggplot2)
+library(patchwork)
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
-all_activin<-rbind(res_sb50_60_vs_activin_only,res_sb50_120_vs_activin_only,
-                   res_sb50_180_vs_activin_only,res_activin_vs_baseline,
-                   res_sb50_60_vs_baseline,res_sb50_120_vs_baseline,
-                   res_sb50_180_vs_baseline)
+RESULTS_DIR <- "results"
+results_path <- function(...) file.path(RESULTS_DIR, ...)
 
-activin_affected_genes<-all_activin %>%
-  filter(abs(log2FoldChange)>=1.5 & padj <=0.05) %>%
-  dplyr::select(gene) %>%
-  as.list() %>%
-  unique()
 # Output directory for annotation figures
 ANNOTATION_OUT_DIR <- results_path("compare_annotations")
 if (!dir.exists(ANNOTATION_OUT_DIR)) dir.create(ANNOTATION_OUT_DIR, recursive = TRUE)
-
-# Your genes of interest (add gene names or IDs to check against new annotations)
-# Example: MY_GENES <- c("nodal", "lefty1", "lefty2", "pitx2", "gsc", "mixl1")
-MY_GENES <- activin_affected_genes
 
 # Set input directory to the annotation comparison output
 ANNOTATION_DIR <- "compare_annotations"
@@ -286,44 +280,105 @@ p3 <- ggplot(new_genes_biotype, aes(x = biotype_simple, y = n, fill = annotation
   )
 
 # ============================================================================
-# PLOT 4: Biotype Transitions (Sankey-style simplified)
+# PLOT 4: DEG Biotype Transitions (from check_degs_annotation.sh output)
 # ============================================================================
 
-if (nrow(genes_biotype_changes) > 0) {
-  biotype_transitions <- genes_biotype_changes %>%
+deg_check_file <- file.path(ANNOTATION_DIR, "deg_annotation_check.tsv")
+
+if (file.exists(deg_check_file)) {
+  deg_check <- read_tsv(deg_check_file, show_col_types = FALSE)
+
+  n_total    <- nrow(deg_check)
+  n_removed  <- sum(deg_check$removed == TRUE)
+  n_biotype  <- sum(deg_check$biotype_changed == TRUE)
+  n_missing  <- sum(deg_check$in_GRCz12tu == FALSE)
+  n_clean    <- n_total - n_removed - n_biotype - n_missing
+
+  # Build the transition data for DEGs with biotype changes
+  bt_degs <- deg_check %>%
+    filter(biotype_changed == TRUE) %>%
     mutate(
       old_simple = simplify_biotype(old_biotype),
-      new_simple = simplify_biotype(new_biotype)
-    ) %>%
-    count(old_simple, new_simple, name = "count") %>%
-    arrange(desc(count)) %>%
-    head(15)  # Top 15 transitions
-
-  biotype_transitions <- biotype_transitions %>%
-    mutate(transition = paste(old_simple, "→", new_simple)) %>%
-    mutate(transition = fct_reorder(transition, count))
-
-  p4 <- ggplot(biotype_transitions, aes(x = count, y = transition, fill = old_simple)) +
-    geom_col(width = 0.7) +
-    geom_text(aes(label = count), hjust = -0.2, size = 3) +
-    scale_fill_manual(values = biotype_colors, name = "Original biotype") +
-    scale_x_continuous(expand = expansion(mult = c(0, 0.15))) +
-    labs(
-      title = "Top Biotype Transitions",
-      subtitle = paste0(format(nrow(genes_biotype_changes), big.mark = ","), " genes changed biotype"),
-      x = "Number of genes",
-      y = NULL
-    ) +
-    theme_minimal(base_size = 11) +
-    theme(
-      plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
-      plot.subtitle = element_text(hjust = 0.5, color = "grey40", size = 9),
-      legend.position = "none",
-      panel.grid.major.y = element_blank()
+      new_simple = simplify_biotype(new_biotype),
+      transition = paste0(old_simple, " \u2192 ", new_simple),
+      direction = case_when(
+        new_simple == "protein_coding" ~ "To protein-coding",
+        old_simple == "protein_coding" ~ "From protein-coding",
+        TRUE ~ "Other"
+      )
     )
+
+  if (nrow(bt_degs) > 0) {
+    transition_counts <- bt_degs %>%
+      count(transition, direction, name = "count") %>%
+      mutate(transition = fct_reorder(transition, count))
+
+    p4 <- ggplot(transition_counts, aes(x = count, y = transition, fill = direction)) +
+      geom_col(width = 0.65) +
+      geom_text(aes(label = count), hjust = -0.3, size = 3.5, fontface = "bold") +
+      scale_fill_manual(values = c(
+        "To protein-coding"   = colors$accent1,
+        "From protein-coding" = colors$secondary,
+        "Other"               = colors$accent3
+      ), name = NULL) +
+      scale_x_continuous(expand = expansion(mult = c(0, 0.2))) +
+      labs(
+        title = "DEG Biotype Reclassifications",
+        subtitle = paste0(n_biotype, " of ", format(n_total, big.mark = ","),
+                          " DEGs changed biotype; 0 removed"),
+        x = "Number of DEGs",
+        y = NULL
+      ) +
+      theme_minimal(base_size = 11) +
+      theme(
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+        plot.subtitle = element_text(hjust = 0.5, color = "grey40", size = 9),
+        legend.position = "top",
+        legend.key.size = unit(0.35, "cm"),
+        legend.text = element_text(size = 8),
+        panel.grid.major.y = element_blank()
+      )
+  } else {
+    # No biotype changes at all
+    p4 <- ggplot() +
+      annotate("text", x = 0.5, y = 0.5, size = 4.5, fontface = "bold",
+               color = colors$accent1,
+               label = paste0("None of the ", format(n_total, big.mark = ","),
+                              " DEGs\nwere removed, added, or\nreclassified between builds")) +
+      theme_void() +
+      labs(title = "DEG Annotation Status",
+           subtitle = "GRCz11 \u2192 GRCz12tu") +
+      theme(
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+        plot.subtitle = element_text(hjust = 0.5, color = "grey40", size = 9)
+      )
+  }
+
+  # Print console summary
+  cat("\n=== DEG ANNOTATION CHECK ===", "\n")
+  cat(sprintf("  Total DEGs checked:       %s\n", format(n_total, big.mark = ",")))
+  cat(sprintf("  Unchanged:                %s\n", format(n_clean, big.mark = ",")))
+  cat(sprintf("  Removed in GRCz12tu:      %d\n", n_removed))
+  cat(sprintf("  Biotype changed:          %d\n", n_biotype))
+  cat(sprintf("  Not found in GRCz12tu:    %d\n", n_missing))
+  if (n_removed > 0) {
+    cat("  Removed genes:", paste(deg_check$gene[deg_check$removed], collapse = ", "), "\n")
+  }
+  if (n_biotype > 0) {
+    bt_genes <- deg_check %>% filter(biotype_changed == TRUE)
+    cat("  Biotype-changed genes:\n")
+    for (i in seq_len(nrow(bt_genes))) {
+      cat(sprintf("    %s: %s -> %s\n", bt_genes$gene[i], bt_genes$old_biotype[i], bt_genes$new_biotype[i]))
+    }
+  }
+
 } else {
+  cat("\nWARNING: deg_annotation_check.tsv not found.",
+      "\nRun check_degs_annotation.sh on the cluster first.\n")
   p4 <- ggplot() +
-    annotate("text", x = 0.5, y = 0.5, label = "No biotype changes", size = 5) +
+    annotate("text", x = 0.5, y = 0.5,
+             label = "Run check_degs_annotation.sh\non the cluster first",
+             size = 4, color = "grey50") +
     theme_void()
 }
 
@@ -331,7 +386,7 @@ if (nrow(genes_biotype_changes) > 0) {
 # COMBINED FIGURE
 # ============================================================================
 
-combined_fig <- (p1 + p2) / (p3 + p4) +
+combined_fig <- (p1 + p4) / (p2 + p3) +
   plot_annotation(
     title = "Zebrafish Genome Annotation Comparison",
     subtitle = "GRCz11 → GRCz12tu",
@@ -355,106 +410,13 @@ ggsave(
 cat("Saved:", file.path(ANNOTATION_OUT_DIR, "annotation_comparison_figure.png"), "\n")
 
 # ============================================================================
+# DEG ANNOTATION CHECK (from check_degs_annotation.sh output)
 # ============================================================================
-# CHECK YOUR GENES OF INTEREST
-# ============================================================================
-# ============================================================================
-
-cat("\n")
-cat(strrep("=", 70), "\n")
-cat("CHECKING YOUR GENES OF INTEREST\n")
-cat(strrep("=", 70), "\n\n")
-
-if (length(MY_GENES) == 0) {
-  cat("No genes specified in MY_GENES vector.\n")
-  cat("Add gene names/IDs to MY_GENES at the top of the script to check them.\n\n")
-} else {
-  cat(sprintf("Checking %d genes: %s\n\n", length(MY_GENES), paste(MY_GENES, collapse = ", ")))
-
-  # Combine all new genes for searching
-  all_new_genes <- bind_rows(
-    newly_annotated_named %>% mutate(annotation_status = "Official name"),
-    newly_annotated_computational %>% mutate(annotation_status = "Computational ID")
-  )
-
-  # Search by gene name (case-insensitive)
-  found_in_new <- all_new_genes %>%
-    filter(
-      tolower(gene_name) %in% tolower(MY_GENES) |
-      tolower(gene_id) %in% tolower(MY_GENES)
-    )
-
-  # Search in genes that got new official names
-  found_new_names <- genes_new_names %>%
-    filter(
-      tolower(old_name) %in% tolower(MY_GENES) |
-      tolower(new_name) %in% tolower(MY_GENES) |
-      tolower(gene_id) %in% tolower(MY_GENES)
-    )
-
-  # Search in removed genes
-  found_removed <- genes_removed %>%
-    filter(
-      tolower(gene_name) %in% tolower(MY_GENES) |
-      tolower(gene_id) %in% tolower(MY_GENES)
-    )
-
-  # Report findings
-  cat("=== IN NEWLY ADDED GENES ===\n")
-  if (nrow(found_in_new) > 0) {
-    cat(sprintf("Found %d of your genes in newly added annotations:\n", nrow(found_in_new)))
-    print(found_in_new %>% dplyr::select(gene_id, gene_name, biotype, annotation_status))
-  } else {
-    cat("None of your genes are in the newly added genes.\n")
-  }
-
-  cat("\n=== IN GENES WITH NEW OFFICIAL NAMES ===\n")
-  if (nrow(found_new_names) > 0) {
-    cat(sprintf("Found %d of your genes that received new official names:\n", nrow(found_new_names)))
-    print(found_new_names %>% dplyr::select(gene_id, old_name, new_name, location))
-  } else {
-    cat("None of your genes received new official names.\n")
-  }
-
-  cat("\n=== IN REMOVED GENES ===\n")
-  if (nrow(found_removed) > 0) {
-    cat(sprintf("WARNING: %d of your genes were REMOVED in GRCz12tu:\n", nrow(found_removed)))
-    print(found_removed %>% dplyr::select(gene_id, gene_name, biotype))
-  } else {
-    cat("None of your genes were removed (good!).\n")
-  }
-
-  # Summary
-  genes_found <- unique(c(
-    found_in_new$gene_name, found_in_new$gene_id,
-    found_new_names$old_name, found_new_names$new_name, found_new_names$gene_id,
-    found_removed$gene_name, found_removed$gene_id
-  ))
-  genes_found <- genes_found[tolower(genes_found) %in% tolower(MY_GENES)]
-
-  genes_not_found <- MY_GENES[!tolower(MY_GENES) %in% tolower(genes_found)]
-
-  cat("\n=== SUMMARY ===\n")
-  cat(sprintf("Genes found in annotation changes: %d / %d\n",
-              length(unique(genes_found)), length(MY_GENES)))
-
-  if (length(genes_not_found) > 0) {
-    cat(sprintf("Genes not affected by annotation changes: %s\n",
-                paste(genes_not_found, collapse = ", ")))
-    cat("(These genes likely exist in both versions with no changes)\n")
-  }
-
-  # Save results
-  gene_check_results <- tibble(
-    query_gene = MY_GENES,
-    found_in_new_genes = tolower(MY_GENES) %in% tolower(c(found_in_new$gene_name, found_in_new$gene_id)),
-    got_new_name = tolower(MY_GENES) %in% tolower(c(found_new_names$old_name, found_new_names$new_name, found_new_names$gene_id)),
-    was_removed = tolower(MY_GENES) %in% tolower(c(found_removed$gene_name, found_removed$gene_id))
-  )
-
-  write_csv(gene_check_results, file.path(ANNOTATION_OUT_DIR, "my_genes_annotation_check.csv"))
-  cat("\nSaved:", file.path(ANNOTATION_OUT_DIR, "my_genes_annotation_check.csv"), "\n")
-}
+# The per-gene check is now produced by the bash script on the cluster.
+# Results are already loaded above and shown in panel p4.
+# The TSV can be imported in any other R script with:
+#   deg_check <- read_tsv("compare_annotations/deg_annotation_check.tsv")
+#   subset(deg_check, removed | added | biotype_changed)
 
 # ============================================================================
 # EXPORT SUMMARY TABLES

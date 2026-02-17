@@ -175,11 +175,11 @@ compute_proportions <- function(data, tp_label) {
 
   bind_rows(
     motility_subset %>%
-      count(category) %>%
+      dplyr::count(category) %>%
       mutate(total = sum(n), pct = round(100 * n / total, 1),
              gene_set = sprintf("Motility (n=%d)", sum(n))),
     other_subset %>%
-      count(category) %>%
+      dplyr::count(category) %>%
       mutate(total = sum(n), pct = round(100 * n / total, 1),
              gene_set = sprintf("All other DEGs (n=%d)", sum(n)))
   ) %>%
@@ -292,7 +292,7 @@ motility_tracking <- motility_activin_resp %>%
 
 cat(sprintf("\nActivin-responsive motility genes tracked: %d\n", nrow(motility_tracking)))
 cat("\nCommitment paths:\n")
-path_counts <- motility_tracking %>% count(commitment_path, sort = TRUE)
+path_counts <- motility_tracking %>% dplyr::count(commitment_path, sort = TRUE)
 print(as.data.frame(path_counts))
 
 n_support <- sum(motility_tracking$supports_hypothesis, na.rm = TRUE)
@@ -316,11 +316,11 @@ cat_colors <- c("Blocked" = "#2166AC", "Not blocked" = "#B2182B",
 
 motility_prop <- bind_rows(
   data_60_tagged  %>% filter(is_motility, category %in% activin_cats) %>%
-    count(category) %>% mutate(timepoint = "SB50 at\n60 min"),
+    dplyr::count(category) %>% mutate(timepoint = "SB50 at\n60 min"),
   data_120_tagged %>% filter(is_motility, category %in% activin_cats) %>%
-    count(category) %>% mutate(timepoint = "SB50 at\n120 min"),
+    dplyr::count(category) %>% mutate(timepoint = "SB50 at\n120 min"),
   data_180_tagged %>% filter(is_motility, category %in% activin_cats) %>%
-    count(category) %>% mutate(timepoint = "SB50 at\n180 min")
+    dplyr::count(category) %>% mutate(timepoint = "SB50 at\n180 min")
 ) %>%
   group_by(timepoint) %>%
   mutate(total = sum(n), pct = 100 * n / total) %>%
@@ -489,11 +489,135 @@ if (nrow(delayed_profiles) > 0) {
   write_csv(delayed_profiles, results_path("q5_motility_delayed_expression.csv"))
 }
 
+# ---- Panel D: Motility gene expression continuum across Exp2 conditions ----
+# Show that SB50@60 sits BETWEEN baseline and Activin for motility genes,
+# while SB50@120/180 overlap with Activin (committed).
+
+cat("\n========== PANEL D: EXPRESSION CONTINUUM ==========\n")
+
+# Normalize Exp2
+exp2_meta <- metadata %>% filter(experiment == "Exp2")
+exp2_counts <- counts_filtered[, rownames(exp2_meta)]
+dds_exp2 <- DESeqDataSetFromMatrix(exp2_counts, exp2_meta, ~ 1)
+dds_exp2 <- estimateSizeFactors(dds_exp2)
+norm_exp2 <- counts(dds_exp2, normalized = TRUE)
+
+# Use ALL Activin-responsive motility genes (not just delayed) for a complete view
+all_motility_tracked <- motility_tracking$gene
+
+# Compute mean log2(normalised count + 1) per gene per condition
+motility_exp2_expr <- map_dfr(all_motility_tracked, function(g) {
+  row_idx <- which(rownames(norm_exp2) == g)
+  if (length(row_idx) == 0) return(NULL)
+  data.frame(
+    gene = g,
+    sample = colnames(norm_exp2),
+    norm_count = norm_exp2[row_idx, ],
+    condition = exp2_meta$concentration,
+    time_min = exp2_meta$time_min
+  )
+}) %>%
+  mutate(
+    cond_label = case_when(
+      condition == "0ngml_DMSO" ~ "Baseline\n(ctrl)",
+      condition == "15ngml_DMSO" ~ "Activin\n240\u2032",
+      condition == "SB50" & time_min == 60  ~ "SB50\n@ 60\u2032",
+      condition == "SB50" & time_min == 120 ~ "SB50\n@ 120\u2032",
+      condition == "SB50" & time_min == 180 ~ "SB50\n@ 180\u2032"
+    ),
+    cond_label = factor(cond_label, levels = c(
+      "Baseline\n(ctrl)", "SB50\n@ 60\u2032", "SB50\n@ 120\u2032",
+      "SB50\n@ 180\u2032", "Activin\n240\u2032"
+    )),
+    log2expr = log2(norm_count + 1)
+  ) %>%
+  filter(!is.na(cond_label))
+
+# Compute per-gene log2 fold change relative to Baseline
+motility_gene_means <- motility_exp2_expr %>%
+  group_by(gene, cond_label) %>%
+  summarise(mean_expr = mean(log2expr), .groups = "drop") %>%
+  # log2FC vs Baseline for each gene
+  group_by(gene) %>%
+  mutate(log2fc = mean_expr - mean_expr[cond_label == "Baseline\n(ctrl)"]) %>%
+  ungroup()
+
+# Tag genes by commitment class
+motility_gene_means <- motility_gene_means %>%
+  mutate(
+    commitment_class = case_when(
+      gene %in% (motility_tracking %>% filter(cat_60 == "Not blocked") %>% pull(gene)) ~
+        "Early commitment\n(not blocked @ 60\u2032)",
+      gene %in% (delayed_genes %>% pull(gene)) ~
+        "Delayed commitment\n(blocked @ 60\u2032, free later)",
+      gene %in% (motility_tracking %>% filter(cat_60 == "Blocked",
+                                               cat_120 == "Blocked",
+                                               cat_180 == "Blocked") %>% pull(gene)) ~
+        "Always blocked",
+      TRUE ~ "Other"
+    ),
+    commitment_class = factor(commitment_class, levels = c(
+      "Early commitment\n(not blocked @ 60\u2032)",
+      "Delayed commitment\n(blocked @ 60\u2032, free later)",
+      "Always blocked", "Other"
+    ))
+  )
+
+# Condition-level means per commitment class
+class_means <- motility_gene_means %>%
+  group_by(commitment_class, cond_label) %>%
+  summarise(mean_lfc = mean(log2fc), se_lfc = sd(log2fc) / sqrt(n()),
+            n_genes = n(), .groups = "drop")
+
+class_colors <- c(
+  "Early commitment\n(not blocked @ 60\u2032)" = "#B2182B",
+  "Delayed commitment\n(blocked @ 60\u2032, free later)" = "#EF8A62",
+  "Always blocked" = "#2166AC",
+  "Other" = "grey60"
+)
+
+# Count genes per class
+class_n <- motility_gene_means %>%
+  distinct(gene, commitment_class) %>%
+  dplyr::count(commitment_class) %>%
+  mutate(class_label = sprintf("%s\n(n=%d)", commitment_class, n))
+
+p_continuum <- ggplot(class_means %>%
+                        filter(commitment_class != "Other"),
+                      aes(x = cond_label, y = mean_lfc,
+                          color = commitment_class, group = commitment_class)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50", linewidth = 0.3) +
+  geom_ribbon(aes(ymin = mean_lfc - se_lfc, ymax = mean_lfc + se_lfc,
+                  fill = commitment_class),
+              alpha = 0.15, color = NA) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 3) +
+  scale_color_manual(values = class_colors, name = "Commitment class") +
+  scale_fill_manual(values = class_colors, guide = "none") +
+  labs(
+    x = NULL,
+    y = expression(Mean~log[2]~FC~vs~Baseline),
+    title = "Motility gene activation across conditions",
+    subtitle = "SB50 @ 60\u2032 is intermediate between baseline and Activin for delayed-commitment genes"
+  ) +
+  theme_minimal(base_size = 10, base_family = "Helvetica") +
+  theme(
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.border = element_rect(color = "grey50", fill = NA, linewidth = 0.5),
+    plot.title = element_text(size = 11, face = "bold"),
+    plot.subtitle = element_text(size = 8.5, color = "grey40"),
+    legend.position = "bottom",
+    legend.title = element_text(size = 9, face = "bold"),
+    legend.text = element_text(size = 7.5)
+  ) +
+  guides(color = guide_legend(nrow = 1))
+
 # ---- Combine panels ----
 
 combined <- (p_bars | p_heatmap) /
-  p_expression +
-  plot_layout(heights = c(1, 1), widths = c(1, 1.2)) +
+  (p_continuum | p_expression) +
+  plot_layout(heights = c(1, 1.2)) +
   plot_annotation(
     title = "Cell motility genes: commitment to Activin programme",
     subtitle = paste0(

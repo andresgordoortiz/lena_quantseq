@@ -643,9 +643,9 @@ if (nrow(blocked_heatmap_data) > 3) {
       cellwidth = 30,
       cellheight = 10
     ),
-    error = function(e) message("Heatmap error: ", e$message),
-    finally = dev.off()
+    error = function(e) message("Heatmap error: ", e$message)
   )
+  dev.off()
   cat("Saved:", results_path("q3_blocked_genes_expression.pdf"), "\n")
 } else {
   cat("Skipped heatmap: too few blocked genes (", nrow(blocked_heatmap_data), ")\n")
