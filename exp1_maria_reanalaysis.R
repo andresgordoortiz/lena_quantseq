@@ -43,49 +43,7 @@ nodal_zscore <- t(scale(t(nodal_counts)))
 # Remove any genes with all NA values after scaling
 nodal_zscore <- nodal_zscore[!apply(nodal_zscore, 1, function(x) all(is.na(x))), , drop = FALSE]
 
-# Create grouping variable
-exp1_metadata$group <- paste0(exp1_metadata$concentration, "_", exp1_metadata$time_min, "min")
 
-# Average z-scores by group
-group_means <- data.frame(nodal_zscore) %>%
-  rownames_to_column("gene") %>%
-  pivot_longer(-gene, names_to = "sample_id", values_to = "zscore") %>%
-  left_join(exp1_metadata %>% rownames_to_column("sample_id"), by = "sample_id") %>%
-  group_by(gene, group) %>%
-  summarise(mean_zscore = mean(zscore, na.rm = TRUE), .groups = "drop") %>%
-  pivot_wider(names_from = group, values_from = mean_zscore) %>%
-  column_to_rownames("gene")
-
-# Order columns: first by time, then by concentration within time
-unique_groups <- exp1_metadata %>%
-  dplyr::select(group, time_min, concentration) %>%
-  filter(time_min %in% c(60,120,180,240)) %>%
-  distinct() %>%
-  mutate(
-    conc_order = match(concentration, c("0ngml", "5ngml", "10ngml", "15ngml"))
-  ) %>%
-  arrange(time_min, conc_order) %>%
-  dplyr::select(-conc_order)
-
-ordered_cols <- intersect(unique_groups$group, colnames(group_means))
-group_means_ordered <- group_means[, ordered_cols, drop = FALSE]
-
-# Create annotation for columns
-annotation_col <- unique_groups %>%
-  filter(group %in% ordered_cols) %>%
-  ungroup() %>%
-  dplyr::select(group, time_min, concentration)
-
-# Convert to data frame with row names
-annotation_col <- data.frame(
-  time_min = annotation_col$time_min,
-  concentration = annotation_col$concentration,
-  row.names = annotation_col$group
-)
-
-annotation_col$time_min <- factor(annotation_col$time_min)
-annotation_col$concentration <- factor(annotation_col$concentration,
-                                       levels = c("0ngml", "5ngml", "10ngml", "15ngml"))
 
 # Create clean, academic color palettes
 # Heatmap colors: refined blue-white-red
@@ -108,23 +66,12 @@ concentration_colors <- c(
   "15ngml" = rgb(green_base[1], green_base[2], green_base[3])  # Full green
 )
 
-# Time colors: subtle gradient
-time_colors <- colorRampPalette(c("#F0F0F0", "#636363"))(length(unique(annotation_col$time_min)))
-names(time_colors) <- levels(annotation_col$time_min)
-
 ann_colors <- list(
-  time_min = time_colors,
   concentration = concentration_colors
 )
 
-
-
-# Remove any rows with missing values
-group_means_clean <- group_means_ordered[complete.cases(group_means_ordered), , drop = FALSE]
-cat("Genes after removing NA rows:", nrow(group_means_clean), "\n")
-
-# ── Prepare per-sample heatmap (individual replicates) ──────────────────────
-# Order samples by time then concentration (same logic as averaged panel)
+# ── Prepare per-sample heatmap ──────────────────────────────────────────────
+# Order samples by time then concentration
 sample_order_df <- exp1_metadata %>%
   filter(time_min %in% c(60, 120, 180, 240)) %>%
   mutate(conc_order = match(concentration, c("0ngml", "5ngml", "10ngml", "15ngml"))) %>%
@@ -133,8 +80,10 @@ sample_order_df <- exp1_metadata %>%
 ordered_samples <- intersect(rownames(sample_order_df), colnames(nodal_zscore))
 sample_order_df <- sample_order_df[ordered_samples, ]
 
-# Subset z-scores to the same genes used in the averaged panel
-nodal_zscore_clean <- nodal_zscore[rownames(group_means_clean), ordered_samples, drop = FALSE]
+# Subset z-scores and remove genes with any NA values
+nodal_zscore_clean <- nodal_zscore[, ordered_samples, drop = FALSE]
+nodal_zscore_clean <- nodal_zscore_clean[complete.cases(nodal_zscore_clean), , drop = FALSE]
+cat("Genes after removing NA rows:", nrow(nodal_zscore_clean), "\n")
 
 # Per-sample column annotation
 annotation_col_samples <- data.frame(
@@ -144,36 +93,29 @@ annotation_col_samples <- data.frame(
   row.names = rownames(sample_order_df)
 )
 
-# ── Get row order from the averaged heatmap (cluster once, reuse) ───────────
-hm_avg <- pheatmap(
-  group_means_clean,
-  cluster_cols = FALSE,
-  cluster_rows = TRUE,
-  clustering_distance_rows = "euclidean",
-  clustering_method = "complete",
-  silent = TRUE
-)
-row_order <- hm_avg$tree_row$order
+# Time annotation colors (match present levels)
+time_colors <- colorRampPalette(c("#F0F0F0", "#636363"))(length(levels(annotation_col_samples$time_min)))
+names(time_colors) <- levels(annotation_col_samples$time_min)
+ann_colors$time_min <- time_colors
 
-# ── Plot 1: Per-sample heatmap (individual replicates) ──────────────────────
-# Calculate PDF dimensions from data (cellwidth/height are in points = 1/72 inch)
+# ── Calculate PDF dimensions ────────────────────────────────────────────────
 n_genes <- nrow(nodal_zscore_clean)
 n_samples_plot <- ncol(nodal_zscore_clean)
-n_groups_plot <- ncol(group_means_clean)
 
-pdf_w_samples <- n_samples_plot * 8 / 72 + 3   # cells + rownames + legend + margins
-pdf_h_samples <- n_genes * 10 / 72 + 1.5        # cells + annotation + margins
-pdf_w_groups  <- n_groups_plot * 12 / 72 + 3
-pdf_h_groups  <- n_genes * 10 / 72 + 1.5
+pdf_w <- n_samples_plot * 8 / 72 + 3   # cells + rownames + legend + margins
+pdf_h <- n_genes * 10 / 72 + 1.5       # cells + annotation + margins
 
-pdf(results_path("nodal_heatmap_exp1_averaged.pdf"), width = pdf_w_samples, height = pdf_h_samples, family = "Helvetica")
+# ── Plot: Per-sample heatmap ────────────────────────────────────────────────
+pdf(results_path("nodal_heatmap_exp1.pdf"), width = pdf_w, height = pdf_h, family = "Helvetica")
 tryCatch(
   pheatmap(
-    nodal_zscore_clean[row_order, , drop = FALSE],
+    nodal_zscore_clean,
     annotation_col = annotation_col_samples,
     annotation_colors = ann_colors,
     cluster_cols = FALSE,
-    cluster_rows = FALSE,
+    cluster_rows = TRUE,
+    clustering_distance_rows = "euclidean",
+    clustering_method = "complete",
     show_rownames = TRUE,
     show_colnames = FALSE,
     annotation_names_col = FALSE,
@@ -187,59 +129,9 @@ tryCatch(
     legend = TRUE,
     cellwidth = 8,
     cellheight = 10,
-    treeheight_row = 0
+    treeheight_row = 20
   ),
   error = function(e) message("Heatmap error: ", e$message),
   finally = dev.off()
 )
-
-# ── Plot 2: Averaged heatmap (aggregated by condition) ─────────────────────
-# Ensure annotation_col rownames exactly match group_means_clean columns
-annotation_col_agg <- annotation_col[colnames(group_means_clean), , drop = FALSE]
-annotation_col_agg <- annotation_col_agg[complete.cases(annotation_col_agg), , drop = FALSE]
-# Drop unused factor levels
-annotation_col_agg$time_min <- droplevels(annotation_col_agg$time_min)
-annotation_col_agg$concentration <- droplevels(annotation_col_agg$concentration)
-
-# Subset ann_colors to only present levels
-ann_colors_agg <- list(
-  time_min = ann_colors$time_min[levels(annotation_col_agg$time_min)],
-  concentration = ann_colors$concentration[levels(annotation_col_agg$concentration)]
-)
-
-# Subset data to columns that have valid annotations
-valid_groups <- rownames(annotation_col_agg)
-group_data <- group_means_clean[row_order, valid_groups, drop = FALSE]
-
-cat("Aggregated heatmap: ", nrow(group_data), " genes x ", ncol(group_data), " groups\n")
-
-pdf(results_path("nodal_heatmap_exp1_aggregated.pdf"), width = pdf_w_groups, height = pdf_h_groups, family = "Helvetica")
-tryCatch(
-  pheatmap(
-    group_data,
-    annotation_col = annotation_col_agg,
-    annotation_colors = ann_colors_agg,
-    cluster_cols = FALSE,
-    cluster_rows = FALSE,
-    show_rownames = TRUE,
-    show_colnames = FALSE,
-    annotation_names_col = FALSE,
-    color = heatmap_colors,
-    breaks = seq(-2.5, 2.5, length.out = 101),
-    border_color = NA,
-    fontsize = 10,
-    fontsize_row = 9,
-    main = "",
-    annotation_legend = TRUE,
-    legend = TRUE,
-    cellwidth = 12,
-    cellheight = 10,
-    treeheight_row = 0
-  ),
-  error = function(e) message("Heatmap error (aggregated): ", e$message),
-  finally = dev.off()
-)
-
-# Save the averaged z-score matrix
-#write_csv(group_means_clean %>% rownames_to_column("gene"))
 
